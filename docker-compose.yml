@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://host.docker.internal:4000/dbms/v1}
+    image: docmanager-frontend
+    ports:
+      - "4173:80"
+    restart: unless-stopped
