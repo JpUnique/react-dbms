@@ -1,64 +1,73 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
-import MainLayout from '@/components/layout/MainLayout';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ArrowLeft, AlertCircle, CheckCircle2, Lock } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
+import { authService } from "@/services/auth.service";
+import MainLayout from "@/components/layout/MainLayout";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ArrowLeft, AlertCircle, CheckCircle2 } from "lucide-react";
 
 const ChangePassword: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [success, setSuccess] = useState('');
-  const [error, setError] = useState('');
 
-  if (!currentUser) {
-    navigate('/login');
-    return null;
-  }
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
+
+  // ✅ safer redirect
+  useEffect(() => {
+    if (!currentUser) {
+      navigate("/login");
+    }
+  }, [currentUser, navigate]);
 
   const validatePassword = (password: string): string | null => {
     if (password.length < 8) {
-      return 'Password must be at least 8 characters long';
+      return "Password must be at least 8 characters long";
     }
     if (!/[A-Z]/.test(password)) {
-      return 'Password must contain at least one uppercase letter';
+      return "Password must contain at least one uppercase letter";
     }
     if (!/[a-z]/.test(password)) {
-      return 'Password must contain at least one lowercase letter';
+      return "Password must contain at least one lowercase letter";
     }
-    if (!/[0-9]/.test(password)) {
-      return 'Password must contain at least one number';
+    if (!/\d/.test(password)) {
+      return "Password must contain at least one number";
     }
     return null;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError('');
-    setSuccess('');
+    setError("");
+    setSuccess("");
 
-    // Validation
     if (!currentPassword || !newPassword || !confirmPassword) {
-      setError('Please fill in all fields');
+      setError("Please fill in all fields");
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError('New passwords do not match');
+      setError("New passwords do not match");
       return;
     }
 
     if (currentPassword === newPassword) {
-      setError('New password must be different from current password');
+      setError("New password must be different from current password");
       return;
     }
 
@@ -71,40 +80,51 @@ const ChangePassword: React.FC = () => {
     setIsUpdating(true);
 
     try {
-      // In a real app, this would be an API call to verify current password and update
-      // For demo purposes, we'll simulate success after a delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setSuccess('Password changed successfully! You can now use your new password to log in.');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      
-      // Redirect to profile after 2 seconds
+      await authService.changePassword(currentPassword, newPassword);
+
+      setSuccess("Password changed successfully");
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+
       setTimeout(() => {
-        navigate('/profile');
+        navigate("/settings");
       }, 2000);
-    } catch (err) {
-      setError('Failed to change password. Please try again.');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Failed to change password");
+      }
     } finally {
       setIsUpdating(false);
     }
   };
 
-  const getPasswordStrength = (password: string): { strength: string; color: string; percentage: number } => {
-    if (!password) return { strength: '', color: '', percentage: 0 };
-    
+  const getPasswordStrength = (password: string) => {
+    if (!password) return { strength: "", color: "", percentage: 0 };
+
     let score = 0;
     if (password.length >= 8) score++;
     if (password.length >= 12) score++;
     if (/[A-Z]/.test(password)) score++;
     if (/[a-z]/.test(password)) score++;
-    if (/[0-9]/.test(password)) score++;
+    if (/\d/.test(password)) score++;
     if (/[^A-Za-z0-9]/.test(password)) score++;
 
-    if (score <= 2) return { strength: 'Weak', color: 'bg-red-500', percentage: 33 };
-    if (score <= 4) return { strength: 'Medium', color: 'bg-yellow-500', percentage: 66 };
-    return { strength: 'Strong', color: 'bg-green-500', percentage: 100 };
+    if (score <= 2)
+      return { strength: "Weak", color: "bg-red-500", percentage: 33 };
+    if (score <= 4)
+      return { strength: "Medium", color: "bg-yellow-500", percentage: 66 };
+
+    return { strength: "Strong", color: "bg-green-500", percentage: 100 };
+  };
+
+  const getStrengthTextColor = (strength: string) => {
+    if (strength === "Weak") return "text-red-500";
+    if (strength === "Medium") return "text-yellow-500";
+    return "text-green-500";
   };
 
   const passwordStrength = getPasswordStrength(newPassword);
@@ -112,8 +132,13 @@ const ChangePassword: React.FC = () => {
   return (
     <MainLayout>
       <div className="max-w-2xl mx-auto space-y-6">
+        {/* Header */}
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/profile')}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate("/settings")}
+          >
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
@@ -124,6 +149,7 @@ const ChangePassword: React.FC = () => {
           </div>
         </div>
 
+        {/* Requirements */}
         <Card>
           <CardHeader>
             <CardTitle>Password Requirements</CardTitle>
@@ -133,26 +159,15 @@ const ChangePassword: React.FC = () => {
           </CardHeader>
           <CardContent>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li className="flex items-center gap-2">
-                <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                At least 8 characters long
-              </li>
-              <li className="flex items-center gap-2">
-                <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                Contains at least one uppercase letter
-              </li>
-              <li className="flex items-center gap-2">
-                <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                Contains at least one lowercase letter
-              </li>
-              <li className="flex items-center gap-2">
-                <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                Contains at least one number
-              </li>
+              <li>At least 8 characters long</li>
+              <li>Contains at least one uppercase letter</li>
+              <li>Contains at least one lowercase letter</li>
+              <li>Contains at least one number</li>
             </ul>
           </CardContent>
         </Card>
 
+        {/* Form */}
         <Card>
           <form onSubmit={handleSubmit}>
             <CardHeader>
@@ -163,6 +178,7 @@ const ChangePassword: React.FC = () => {
             </CardHeader>
 
             <CardContent className="space-y-4">
+              {/* Success */}
               {success && (
                 <Alert className="border-green-500 bg-green-50">
                   <CheckCircle2 className="h-4 w-4 text-green-600" />
@@ -172,6 +188,7 @@ const ChangePassword: React.FC = () => {
                 </Alert>
               )}
 
+              {/* Error */}
               {error && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -179,51 +196,41 @@ const ChangePassword: React.FC = () => {
                 </Alert>
               )}
 
+              {/* Current Password */}
               <div className="space-y-2">
-                <Label htmlFor="current-password">Current Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="current-password"
-                    type="password"
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    className="pl-9"
-                    placeholder="Enter current password"
-                    required
-                  />
-                </div>
+                <Label>Current Password</Label>
+                <Input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                />
               </div>
 
+              {/* New Password */}
               <div className="space-y-2">
-                <Label htmlFor="new-password">New Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="new-password"
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="pl-9"
-                    placeholder="Enter new password"
-                    required
-                  />
-                </div>
+                <Label>New Password</Label>
+                <Input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+
                 {newPassword && (
                   <div className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Password strength:</span>
-                      <span className={`font-medium ${
-                        passwordStrength.strength === 'Weak' ? 'text-red-500' :
-                        passwordStrength.strength === 'Medium' ? 'text-yellow-500' :
-                        'text-green-500'
-                      }`}>
+                    <div className="flex justify-between text-xs">
+                      <span>Password strength:</span>
+                      <span
+                        className={getStrengthTextColor(
+                          passwordStrength.strength,
+                        )}
+                      >
                         {passwordStrength.strength}
                       </span>
                     </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+
+                    <div className="h-2 bg-muted rounded">
                       <div
-                        className={`h-full transition-all ${passwordStrength.color}`}
+                        className={passwordStrength.color}
                         style={{ width: `${passwordStrength.percentage}%` }}
                       />
                     </div>
@@ -231,20 +238,14 @@ const ChangePassword: React.FC = () => {
                 )}
               </div>
 
+              {/* Confirm Password */}
               <div className="space-y-2">
-                <Label htmlFor="confirm-password">Confirm New Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="confirm-password"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="pl-9"
-                    placeholder="Confirm new password"
-                    required
-                  />
-                </div>
+                <Label>Confirm New Password</Label>
+                <Input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
               </div>
             </CardContent>
 
@@ -252,13 +253,21 @@ const ChangePassword: React.FC = () => {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => navigate('/profile')}
-                disabled={isUpdating}
+                onClick={() => navigate("/settings")}
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isUpdating}>
-                {isUpdating ? 'Updating...' : 'Change Password'}
+
+              <Button
+                type="submit"
+                disabled={
+                  isUpdating ||
+                  !currentPassword ||
+                  !newPassword ||
+                  !confirmPassword
+                }
+              >
+                {isUpdating ? "Updating..." : "Change Password"}
               </Button>
             </CardFooter>
           </form>

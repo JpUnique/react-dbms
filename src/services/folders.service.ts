@@ -17,7 +17,7 @@ export const foldersService = {
   async list(parentId?: string | null): Promise<BackendFolder[]> {
     const query = parentId === null ? '?parent_id=null' : parentId ? `?parent_id=${encodeURIComponent(parentId)}` : '';
     const data = await api.get<{ folders: BackendFolder[] }>(`/folders${query}`);
-    return data.folders;
+    return data.folders ?? [];
   },
 
   async get(id: string): Promise<BackendFolder> {

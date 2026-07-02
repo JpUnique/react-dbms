@@ -1,124 +1,126 @@
-/**
- * API Client for DMS Backend
- * Self-hosted Node.js + Express + PostgreSQL backend
- */
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:4000/dbms/v1";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/dbms/v1';
-
-const ACCESS_TOKEN_KEY = 'dms_access_token';
-const REFRESH_TOKEN_KEY = 'dms_refresh_token';
-
-export const tokenStorage = {
-  getAccessToken: () => localStorage.getItem(ACCESS_TOKEN_KEY),
-  getRefreshToken: () => localStorage.getItem(REFRESH_TOKEN_KEY),
-  setTokens: (accessToken: string, refreshToken?: string) => {
-    localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-    if (refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-  },
-  clear: () => {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
-  },
-};
-
-export class ApiError extends Error {
-  constructor(public status: number, message: string, public details?: unknown) {
-    super(message);
-    this.name = 'ApiError';
-  }
+//  TOKEN HANDLING
+function getToken(): string | null {
+  return localStorage.getItem("token");
 }
 
-async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = tokenStorage.getRefreshToken();
-  if (!refreshToken) return null;
-
-  try {
-    const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-    if (!res.ok) {
-      tokenStorage.clear();
-      return null;
-    }
-    const data = await res.json();
-    tokenStorage.setTokens(data.accessToken);
-    return data.accessToken;
-  } catch {
-    tokenStorage.clear();
-    return null;
-  }
+function setToken(token: string): void {
+  localStorage.setItem("token", token);
 }
 
-interface RequestOptions extends Omit<RequestInit, 'body'> {
-  body?: unknown;
-  skipAuth?: boolean;
-  formData?: FormData;
+function clearToken(): void {
+  localStorage.removeItem("token");
 }
 
-async function request<T = unknown>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-  const { body, skipAuth, formData, headers: customHeaders, ...rest } = options;
+//  GENERIC API RESPONSE (matches backend)
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+}
+
+//  REQUEST FUNCTION
+async function request<TResponse>(
+  method: string,
+  endpoint: string,
+  body?: unknown,
+  isFormData: boolean = false,
+): Promise<TResponse> {
   const url = `${API_BASE_URL}${endpoint}`;
 
-  const headers: Record<string, string> = {
-    ...(customHeaders as Record<string, string>),
-  };
+  const headers: Record<string, string> = {};
 
-  if (!formData && body !== undefined) {
-    headers['Content-Type'] = 'application/json';
+  if (!isFormData) {
+    headers["Content-Type"] = "application/json";
   }
 
-  if (!skipAuth) {
-    const token = tokenStorage.getAccessToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+  const token = getToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const fetchOptions: RequestInit = {
-    ...rest,
+  let requestBody: BodyInit | undefined;
+
+  if (body) {
+    requestBody = isFormData ? (body as FormData) : JSON.stringify(body);
+  }
+
+  const options: RequestInit = {
+    method,
     headers,
-    body: formData ? formData : body !== undefined ? JSON.stringify(body) : undefined,
+    body: requestBody,
+    // Every response here is dynamic, per-user data — never let the browser
+    // serve a stale cached copy of a GET instead of hitting the server.
+    cache: "no-store",
   };
 
-  let res = await fetch(url, fetchOptions);
+  console.log("API Request →", url);
 
-  // Attempt token refresh on 401
-  if (res.status === 401 && !skipAuth) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers['Authorization'] = `Bearer ${newToken}`;
-      res = await fetch(url, { ...fetchOptions, headers });
-    }
+  const res = await fetch(url, options);
+
+  let json: unknown = null;
+
+  try {
+    json = await res.json();
+  } catch {
+    json = null;
   }
 
-  const contentType = res.headers.get('content-type') || '';
   if (!res.ok) {
-    let errorData: { error?: string; details?: unknown } = {};
-    if (contentType.includes('application/json')) {
-      errorData = await res.json().catch(() => ({}));
+    // Token expired — clear it and send the user back to login
+    if (res.status === 401) {
+      clearToken();
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
     }
-    throw new ApiError(res.status, errorData.error || `Request failed: ${res.status}`, errorData.details);
+
+    const errorMessage =
+      typeof json === "object" && json !== null && "error" in json
+        ? (json as { error?: string }).error
+        : "Request failed";
+
+    console.error("API Error →", json);
+    throw new Error(errorMessage || "Request failed");
   }
 
-  if (contentType.includes('application/json')) {
-    return res.json() as Promise<T>;
-  }
-  return res as unknown as T;
+  // Backend always wraps success as { data: T, error: null }
+  const wrapped = json as { data?: TResponse; error: string | null };
+  return (wrapped.data ?? json) as TResponse;
 }
 
+//  API METHODS
 export const api = {
-  get: <T = unknown>(endpoint: string, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'GET' }),
-  post: <T = unknown>(endpoint: string, body?: unknown, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'POST', body }),
-  patch: <T = unknown>(endpoint: string, body?: unknown, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'PATCH', body }),
-  put: <T = unknown>(endpoint: string, body?: unknown, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'PUT', body }),
-  delete: <T = unknown>(endpoint: string, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'DELETE' }),
-  upload: <T = unknown>(endpoint: string, formData: FormData) =>
-    request<T>(endpoint, { method: 'POST', formData }),
+  get: <TResponse>(endpoint: string) => request<TResponse>("GET", endpoint),
+
+  post: <TResponse>(endpoint: string, body?: unknown) =>
+    request<TResponse>("POST", endpoint, body),
+
+  put: <TResponse>(endpoint: string, body?: unknown) =>
+    request<TResponse>("PUT", endpoint, body),
+
+  patch: <TResponse>(endpoint: string, body?: unknown) =>
+    request<TResponse>("PATCH", endpoint, body),
+
+  delete: <TResponse>(endpoint: string) =>
+    request<TResponse>("DELETE", endpoint),
+
+  upload: <TResponse>(endpoint: string, formData: FormData) =>
+    request<TResponse>("POST", endpoint, formData, true),
+};
+
+export const tokenStorage = {
+  getAccessToken: () => getToken(),
+  setAccessToken: (token: string) => setToken(token),
+  clearAccessToken: () => clearToken(),
+};
+
+//  AUTH HELPERS
+export const auth = {
+  getToken,
+  setToken,
+  clearToken,
 };
 
 export { API_BASE_URL };

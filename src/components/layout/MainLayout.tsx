@@ -28,7 +28,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children, requireAuth = 
   
   // Main layout for authenticated users
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-background">
       {/* Sidebar */}
       <Sidebar />
       

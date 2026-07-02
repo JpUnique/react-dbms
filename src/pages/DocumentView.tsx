@@ -1,10 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useDocuments } from '@/context/DocumentContext';
+import {
+  documentsService,
+  tagsService,
+  versionsService,
+  commentsService,
+  reviewsService,
+  watchersService,
+  BackendDocument,
+  BackendTag,
+  DocumentVersion,
+  DocumentComment,
+  DocumentReview,
+  API_BASE_URL,
+  tokenStorage,
+} from '@/services';
+import { useAuth } from '@/context/AuthContext';
 import MainLayout from '@/components/layout/MainLayout';
 import DocumentViewer from '@/components/document/DocumentViewer';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
   DialogClose,
@@ -12,15 +27,19 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle
+  DialogTitle,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Badge,
+} from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   FileText,
@@ -28,149 +47,236 @@ import {
   Download,
   Star,
   MoreHorizontal,
-  Pencil,
   Trash,
-  MessageSquare,
+  Trash2,
   Clock,
   Tag as TagIcon,
-  Share2,
   ArrowLeft,
   StarOff,
-  Loader2
+  Loader2,
+  History,
+  Upload,
+  MessageSquare,
+  Send,
+  Eye,
+  EyeOff,
+  ClipboardCheck,
+  CheckCircle2,
+  XCircle,
+  Users,
 } from 'lucide-react';
-import { Document, Comment, Folder, Tag } from '@/types/document';
 import { cn } from '@/lib/utils';
 
+const fileTypeIcon = (fileName: string) => {
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+  const colors: Record<string, string> = {
+    pdf: 'text-red-500',
+    doc: 'text-blue-500', docx: 'text-blue-500',
+    xls: 'text-green-500', xlsx: 'text-green-500',
+    ppt: 'text-orange-500', pptx: 'text-orange-500',
+  };
+  return <FileText className={cn('h-12 w-12', colors[ext] ?? 'text-gray-500')} />;
+};
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString() + ' at ' +
+  new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
 const DocumentView: React.FC = () => {
-  const { documentId } = useParams();
+  const { documentId } = useParams<{ documentId: string }>();
   const navigate = useNavigate();
-  const { 
-    documents, 
-    folders, 
-    tags, 
-    addComment, 
-    deleteDocument, 
-    updateDocument,
-    openInDesktopApp,
-    getDocumentPages
-  } = useDocuments();
-  
-  const [document, setDocument] = useState<Document | null>(null);
-  const [folder, setFolder] = useState<Folder | null>(null);
+  const { currentUser } = useAuth();
+
+  const [doc, setDoc] = useState<BackendDocument | null>(null);
+  const [docTags, setDocTags] = useState<BackendTag[]>([]);
+  const [versions, setVersions] = useState<DocumentVersion[]>([]);
+  const [allTags, setAllTags] = useState<BackendTag[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [newComment, setNewComment] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState('preview');
-  const [documentTags, setDocumentTags] = useState<Tag[]>([]);
-  
-  // Dialog states
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  
-  // Load document data
+
+  const [isVersionDialogOpen, setIsVersionDialogOpen] = useState(false);
+  const [versionFile, setVersionFile] = useState<File | null>(null);
+  const [versionNote, setVersionNote] = useState('');
+  const [isUploadingVersion, setIsUploadingVersion] = useState(false);
+
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+
+  const [comments, setComments] = useState<DocumentComment[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [isPostingComment, setIsPostingComment] = useState(false);
+
+  const [reviews, setReviews] = useState<DocumentReview[]>([]);
+  const [isWatching, setIsWatching] = useState(false);
+  const [watcherCount, setWatcherCount] = useState(0);
+  const [reviewNote, setReviewNote] = useState('');
+  const [reviewAction, setReviewAction] = useState<'approve' | 'reject' | null>(null);
+  const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
   useEffect(() => {
-    const loadDocumentData = () => {
-      setIsLoading(true);
-      
-      // Find document by ID
-      const doc = documents.find(d => d.id === documentId);
-      setDocument(doc || null);
-      
-      if (doc) {
-        // Find folder
-        const docFolder = folders.find(f => f.id === doc.folder);
-        setFolder(docFolder || null);
-        
-        // Get document tags
-        const docTags = tags.filter(tag => doc.tags.includes(tag.id));
-        setDocumentTags(docTags);
-      }
-      
-      setIsLoading(false);
-    };
-    
-    loadDocumentData();
-  }, [documentId, documents, folders, tags]);
-  
-  // Handle document deletion
-  const handleDeleteDocument = async () => {
-    if (!document) return;
-    
+    if (!documentId) return;
+    setIsLoading(true);
+    setPreviewUrl(null);
+    Promise.allSettled([
+      documentsService.get(documentId),
+      tagsService.getDocumentTags(documentId),
+      versionsService.list(documentId),
+      tagsService.list(),
+      commentsService.list(documentId),
+      reviewsService.getByDocument(documentId),
+      watchersService.status(documentId),
+    ])
+      .then(([docR, tagsR, versR, allR, cmtsR, revsR, watchR]) => {
+        if (docR.status === 'rejected') { setDoc(null); return; }
+        const document = docR.value;
+        setDoc(document);
+        if (tagsR.status === 'fulfilled') setDocTags(tagsR.value ?? []);
+        if (versR.status === 'fulfilled') setVersions(versR.value ?? []);
+        if (allR.status  === 'fulfilled') setAllTags(allR.value ?? []);
+        if (cmtsR.status === 'fulfilled') setComments(cmtsR.value);
+        if (revsR.status === 'fulfilled') setReviews(revsR.value);
+        if (watchR.status === 'fulfilled') {
+          setIsWatching(watchR.value.watching);
+          setWatcherCount(watchR.value.watcher_count);
+        }
+        const token = tokenStorage.getAccessToken();
+        if (token) setPreviewUrl(`${API_BASE_URL}/documents/${document.id}/stream?token=${token}`);
+      })
+      .finally(() => setIsLoading(false));
+  }, [documentId]);
+
+  const handleToggleStar = async () => {
+    if (!doc) return;
+    await documentsService.toggleStar(doc.id);
+    setDoc(prev => prev ? { ...prev, is_starred: !prev.is_starred } : prev);
+  };
+
+  const handleDelete = async () => {
+    if (!doc) return;
+    await documentsService.delete(doc.id);
+    setIsDeleteDialogOpen(false);
+    navigate('/documents');
+  };
+
+  const handleDownload = () => {
+    if (!doc) return;
+    documentsService.download(doc.id, doc.file_name);
+  };
+
+  const handleAttachTag = async (tagId: string) => {
+    if (!doc) return;
+    await tagsService.attachToDocument(doc.id, tagId);
+    const updated = await tagsService.getDocumentTags(doc.id);
+    setDocTags(updated);
+  };
+
+  const loadPreview = () => {
+    if (!doc || previewUrl) return;
+    const token = tokenStorage.getAccessToken();
+    if (token) setPreviewUrl(`${API_BASE_URL}/documents/${doc.id}/stream?token=${token}`);
+  };
+
+  const handleUploadVersion = async () => {
+    if (!doc || !versionFile) return;
+    setIsUploadingVersion(true);
     try {
-      await deleteDocument(document.id);
-      navigate('/documents');
-    } catch (error) {
-      console.error('Error deleting document:', error);
+      const newVersion = await versionsService.upload(doc.id, versionFile, versionNote || undefined);
+      setVersions(prev => [newVersion, ...prev]);
+      setIsVersionDialogOpen(false);
+      setVersionFile(null);
+      setVersionNote('');
+    } catch (e) {
+      globalThis.alert(e instanceof Error ? e.message : 'Upload failed');
     } finally {
-      setIsDeleteDialogOpen(false);
+      setIsUploadingVersion(false);
     }
   };
-  
-  // Handle comment submission
-  const handleSubmitComment = async () => {
-    if (!document || !newComment.trim()) return;
-    
-    setIsSubmitting(true);
-    
+
+  const handleDetachTag = async (tagId: string) => {
+    if (!doc) return;
+    await tagsService.detachFromDocument(doc.id, tagId);
+    setDocTags(prev => prev.filter(t => t.id !== tagId));
+  };
+
+  const handleAddComment = async (e: React.SyntheticEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!doc || !commentText.trim()) return;
+    setIsPostingComment(true);
     try {
-      const comment: Comment = {
-        id: `comment_${Date.now()}`,
-        documentId: document.id,
-        userId: 'current-user', // In a real app, get from auth context
-        userName: 'Current User', // In a real app, get from auth context
-        content: newComment.trim(),
-        createdAt: new Date().toISOString()
-      };
-      
-      await addComment(comment);
-      setNewComment('');
-    } catch (error) {
-      console.error('Error submitting comment:', error);
+      const c = await commentsService.create(doc.id, commentText.trim());
+      setComments(prev => [...prev, c]);
+      setCommentText('');
     } finally {
-      setIsSubmitting(false);
+      setIsPostingComment(false);
     }
   };
-  
-  // Handle opening document in desktop app
-  const [isOpeningInDesktop, setIsOpeningInDesktop] = useState(false);
-  
-  const handleOpenInDesktopApp = async () => {
-    if (!document) return;
-    
-    setIsOpeningInDesktop(true);
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!doc) return;
+    await commentsService.remove(doc.id, commentId);
+    setComments(prev => prev.filter(c => c.id !== commentId));
+  };
+
+  const handleToggleWatch = async () => {
+    if (!doc) return;
+    const { watching } = await watchersService.toggle(doc.id);
+    setIsWatching(watching);
+    setWatcherCount(prev => watching ? prev + 1 : Math.max(0, prev - 1));
+  };
+
+  const handleSubmitForReview = async () => {
+    if (!doc) return;
+    setIsSubmittingReview(true);
     try {
-      const success = await openInDesktopApp(document.id);
-      if (!success) {
-        console.error('Failed to open document in desktop app');
-      }
-    } catch (error) {
-      console.error('Error opening document in desktop app:', error);
+      const rev = await reviewsService.submit(doc.id);
+      setReviews(prev => [rev, ...prev]);
+      setDoc(prev => prev ? { ...prev, status: 'pending_review' } : prev);
+    } catch (e) {
+      globalThis.alert(e instanceof Error ? e.message : 'Failed to submit for review');
     } finally {
-      setIsOpeningInDesktop(false);
+      setIsSubmittingReview(false);
     }
   };
-  
-  // Format date for display
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString() + ' at ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const handleReviewDecision = async () => {
+    if (!doc || !reviewAction) return;
+    setIsSubmittingReview(true);
+    try {
+      const rev = reviewAction === 'approve'
+        ? await reviewsService.approve(doc.id, reviewNote)
+        : await reviewsService.reject(doc.id, reviewNote);
+      setReviews(prev => [rev, ...prev]);
+      setDoc(prev => prev ? { ...prev, status: reviewAction === 'approve' ? 'published' : 'draft' } : prev);
+      setIsReviewDialogOpen(false);
+      setReviewNote('');
+      setReviewAction(null);
+    } catch (e) {
+      globalThis.alert(e instanceof Error ? e.message : 'Failed to submit decision');
+    } finally {
+      setIsSubmittingReview(false);
+    }
   };
-  
+
+  const fileExt = doc?.file_name.split('.').pop() ?? '';
+  const unattachedTags = allTags.filter(t => !docTags.some(dt => dt.id === t.id));
+
   if (isLoading) {
     return (
       <MainLayout>
-        <div className="h-[400px] flex items-center justify-center">
+        <div className="h-100 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       </MainLayout>
     );
   }
-  
-  if (!document) {
+
+  if (!doc) {
     return (
       <MainLayout>
         <div className="text-center py-12">
           <h2 className="text-xl font-semibold mb-2">Document not found</h2>
-          <p className="text-muted-foreground mb-6">The document you're looking for doesn't exist</p>
+          <p className="text-muted-foreground mb-6">The document you're looking for doesn't exist.</p>
           <Button asChild>
             <Link to="/documents">Go to Documents</Link>
           </Button>
@@ -178,130 +284,95 @@ const DocumentView: React.FC = () => {
       </MainLayout>
     );
   }
-  
-  // Get document file type icon
-  const getFileTypeIcon = () => {
-    const iconClasses = "h-12 w-12";
-    
-    switch (document.type.toLowerCase()) {
-      case 'pdf':
-        return <FileText className={cn(iconClasses, "text-red-500")} />;
-      case 'doc':
-      case 'docx':
-        return <FileText className={cn(iconClasses, "text-blue-500")} />;
-      case 'xls':
-      case 'xlsx':
-        return <FileText className={cn(iconClasses, "text-green-500")} />;
-      case 'ppt':
-      case 'pptx':
-        return <FileText className={cn(iconClasses, "text-orange-500")} />;
-      default:
-        return <FileText className={cn(iconClasses, "text-gray-500")} />;
-    }
-  };
-  
+
   return (
     <MainLayout>
       <div className="space-y-6">
-        {/* Back button and breadcrumbs */}
-        <div className="flex items-center text-sm text-muted-foreground mb-2">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="gap-1 px-1"
-            onClick={() => navigate(-1)}
-          >
+        {/* Breadcrumb */}
+        <div className="flex items-center text-sm text-muted-foreground gap-1">
+          <Button variant="ghost" size="sm" className="gap-1 px-1" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-4 w-4" />
-            <span>Back</span>
+            Back
           </Button>
-          
-          <ChevronRight className="h-4 w-4 mx-1" />
-          
-          <Link 
-            to="/folders/root" 
-            className="hover:text-foreground transition-colors"
-          >
-            Documents
-          </Link>
-          
-          {folder && (
+          <ChevronRight className="h-4 w-4" />
+          <Link to="/documents" className="hover:text-foreground transition-colors">Documents</Link>
+          {doc.folder_name && doc.folder_id && (
             <>
-              <ChevronRight className="h-4 w-4 mx-1" />
-              <Link 
-                to={`/folders/${folder.id}`}
-                className="hover:text-foreground transition-colors"
-              >
-                {folder.name}
+              <ChevronRight className="h-4 w-4" />
+              <Link to={`/folders/${doc.folder_id}`} className="hover:text-foreground transition-colors">
+                {doc.folder_name}
               </Link>
             </>
           )}
-          
-          <ChevronRight className="h-4 w-4 mx-1" />
-          <span className="text-foreground font-medium truncate">
-            {document.name}
-          </span>
+          <ChevronRight className="h-4 w-4" />
+          <span className="text-foreground font-medium truncate">{doc.title}</span>
         </div>
-        
+
         {/* Header with actions */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            {getFileTypeIcon()}
-            
+            {fileTypeIcon(doc.file_name)}
             <div>
-              <h1 className="text-2xl font-bold">{document.name}</h1>
+              <h1 className="text-2xl font-bold">{doc.title}</h1>
               <p className="text-sm text-muted-foreground">
-                Uploaded on {formatDate(document.uploadDate)} • {(document.size / 1024 / 1024).toFixed(2)} MB
+                Uploaded {formatDate(doc.created_at)} · {(doc.file_size / 1024 / 1024).toFixed(2)} MB
               </p>
             </div>
           </div>
-          
-          <div className="flex items-center gap-2">
-            <Button 
-              variant="outline" 
-              size="icon"
-              onClick={() => document && updateDocument(document.id, { starred: !document.starred })}
-              className={document.starred ? "text-amber-500" : ""}
-            >
-              {document.starred ? 
-                <Star className="h-4 w-4 fill-amber-500" /> : 
-                <StarOff className="h-4 w-4" />
-              }
+
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {/* Watch toggle */}
+            <Button variant="outline" size="sm" onClick={handleToggleWatch}
+              className={isWatching ? 'text-primary border-primary/40' : ''}>
+              {isWatching ? <EyeOff className="h-4 w-4 mr-1.5" /> : <Eye className="h-4 w-4 mr-1.5" />}
+              {isWatching ? 'Unwatch' : 'Watch'}
+              {watcherCount > 0 && (
+                <span className="ml-1.5 flex items-center gap-0.5 text-muted-foreground text-xs">
+                  <Users className="h-3 w-3" />{watcherCount}
+                </span>
+              )}
             </Button>
-            
-            <Button asChild variant="outline">
-              <a href={document.downloadUrl || "#"} download={document.name}>
-                <Download className="h-4 w-4 mr-1" />
-                Download
-              </a>
-            </Button>
-            
-            {document.electronAppCompatible && (
-              <Button 
-                variant="outline" 
-                onClick={handleOpenInDesktopApp}
-                disabled={isOpeningInDesktop}
-              >
-                {isOpeningInDesktop ? (
-                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                ) : (
-                  <svg className="h-4 w-4 mr-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M9 17H5C3.89543 17 3 16.1046 3 15V5C3 3.89543 3.89543 3 5 3H19C20.1046 3 21 3.89543 21 5V15C21 16.1046 20.1046 17 19 17H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M12 10V21M12 21L9 18M12 21L15 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
-                Open in Desktop
+
+            {/* Owner: submit draft for review */}
+            {currentUser?.id === doc.owner_id && doc.status === 'draft' && (
+              <Button size="sm" variant="outline" onClick={handleSubmitForReview} disabled={isSubmittingReview}>
+                {isSubmittingReview ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <ClipboardCheck className="h-4 w-4 mr-1.5" />}
+                Submit for Review
               </Button>
             )}
-            
-            <Button 
-              variant="outline" 
-              size="icon"
-              onClick={() => navigate(`/documents/${document.id}/share`)}
-              title="Share document"
-            >
-              <Share2 className="h-4 w-4" />
+
+            {/* Admin: approve / reject when pending */}
+            {/* TEMP-NO-ROLES: admin-only gate disabled for testing — restore
+                `currentUser?.role === 'admin' &&` once role-based access is
+                reintroduced. */}
+            {doc.status === 'pending_review' && (
+              <>
+                <Button size="sm" variant="outline"
+                  className="border-green-500/40 text-green-600 hover:bg-green-50 dark:hover:bg-green-950"
+                  onClick={() => { setReviewAction('approve'); setIsReviewDialogOpen(true); }}>
+                  <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                  Approve
+                </Button>
+                <Button size="sm" variant="outline"
+                  className="border-red-400/40 text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                  onClick={() => { setReviewAction('reject'); setIsReviewDialogOpen(true); }}>
+                  <XCircle className="h-4 w-4 mr-1.5" />
+                  Reject
+                </Button>
+              </>
+            )}
+
+            <Button variant="outline" size="icon" onClick={handleToggleStar}>
+              {doc.is_starred
+                ? <Star className="h-4 w-4 fill-amber-500 text-amber-500" />
+                : <StarOff className="h-4 w-4" />}
             </Button>
-            
+
+            <Button variant="outline" size="sm" onClick={handleDownload}>
+              <Download className="h-4 w-4 mr-1" />
+              Download
+            </Button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon">
@@ -309,369 +380,408 @@ const DocumentView: React.FC = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem>
-                  <Pencil className="h-4 w-4 mr-2" />
-                  Edit Details
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to={`/documents/${document.id}/permissions`} className="flex items-center">
-                    <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      <path d="M12 5V3M12 21V19M5 12H3M21 12H19M6.34315 6.34315L4.92893 4.92893M19.0711 19.0711L17.6569 17.6569M6.34315 17.6569L4.92893 19.0711M19.0711 4.92893L17.6569 6.34315" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                    Manage Permissions
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setIsDeleteDialogOpen(true)} className="text-destructive">
-                  <Trash className="h-4 w-4 mr-2" />
+                <DropdownMenuItem
+                  onClick={() => setIsDeleteDialogOpen(true)}
+                  className="text-destructive flex items-center gap-2"
+                >
+                  <Trash className="h-4 w-4" />
                   Delete
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
-        
-        {/* Document tags */}
-        {documentTags.length > 0 && (
+
+        {/* Status & description */}
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge variant="outline" className="capitalize">{doc.status}</Badge>
+          {doc.description && (
+            <p className="text-sm text-muted-foreground">{doc.description}</p>
+          )}
+        </div>
+
+        {/* Tags row */}
+        {docTags.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {documentTags.map(tag => (
-              <div 
+            {docTags.map(tag => (
+              <div
                 key={tag.id}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-xs"
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-xs cursor-pointer hover:opacity-70"
                 style={{ backgroundColor: `${tag.color}20` }}
+                onClick={() => handleDetachTag(tag.id)}
+                title="Click to remove tag"
               >
-                <div 
-                  className="h-2 w-2 rounded-full" 
-                  style={{ backgroundColor: tag.color }}
-                />
-                <span>{tag.name}</span>
+                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: tag.color }} />
+                {tag.name}
               </div>
             ))}
           </div>
         )}
-        
-        {/* Document content tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+
+        {/* Tabs */}
+        <Tabs defaultValue="preview" className="space-y-4" onValueChange={v => { if (v === 'preview') loadPreview(); }}>
           <TabsList>
             <TabsTrigger value="preview">Preview</TabsTrigger>
-            <TabsTrigger value="indexed">
-              Indexed Pages
-              {document.pages && (
+            <TabsTrigger value="tags" className="flex items-center gap-1">
+              <TagIcon className="h-3.5 w-3.5" />
+              Tags
+              {docTags.length > 0 && (
                 <span className="ml-1 bg-primary/10 text-primary text-xs px-1.5 rounded-full">
-                  {document.pages.length}
+                  {docTags.length}
                 </span>
               )}
             </TabsTrigger>
-            <TabsTrigger value="accessibility">Accessibility</TabsTrigger>
-            <TabsTrigger value="comments">
+            <TabsTrigger value="history" className="flex items-center gap-1">
+              <History className="h-3.5 w-3.5" />
+              History
+              {versions.length > 0 && (
+                <span className="ml-1 bg-primary/10 text-primary text-xs px-1.5 rounded-full">
+                  {versions.length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="comments" className="flex items-center gap-1">
+              <MessageSquare className="h-3.5 w-3.5" />
               Comments
-              {document.comments && document.comments.length > 0 && (
+              {comments.length > 0 && (
                 <span className="ml-1 bg-primary/10 text-primary text-xs px-1.5 rounded-full">
-                  {document.comments.length}
+                  {comments.length}
                 </span>
               )}
             </TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
+            {reviews.length > 0 && (
+              <TabsTrigger value="reviews" className="flex items-center gap-1">
+                <ClipboardCheck className="h-3.5 w-3.5" />
+                Reviews
+                <span className="ml-1 bg-primary/10 text-primary text-xs px-1.5 rounded-full">
+                  {reviews.length}
+                </span>
+              </TabsTrigger>
+            )}
           </TabsList>
-          
-          <TabsContent value="preview" className="space-y-4">
+
+          <TabsContent value="preview">
             <Card>
               <CardContent className="p-6">
-                {/* Type-specific document viewer */}
-                <DocumentViewer document={document} />
+                <DocumentViewer
+                  fileType={fileExt}
+                  previewUrl={previewUrl}
+                  isLoading={isPreviewLoading}
+                  onDownload={handleDownload}
+                />
               </CardContent>
             </Card>
           </TabsContent>
-          
-          <TabsContent value="indexed" className="space-y-4">
+
+          <TabsContent value="tags">
             <Card>
-              <CardContent className="p-6">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-medium">Indexed Pages</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {document.pages ? `${document.pages.length} pages indexed` : 'No pages indexed yet'}
-                    </p>
-                  </div>
-                  
-                  {document.pages && document.pages.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {document.pages.map((page) => (
-                        <div key={page.id} className="border rounded-lg overflow-hidden">
-                          <div className="aspect-[3/4] relative bg-gray-100 flex items-center justify-center">
-                            {page.thumbnailUrl ? (
-                              <img 
-                                src={page.thumbnailUrl} 
-                                alt={`Page ${page.pageNumber}`} 
-                                className="object-contain w-full h-full"
-                              />
-                            ) : (
-                              <FileText className="h-12 w-12 text-muted-foreground" />
-                            )}
-                          </div>
-                          <div className="p-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <h4 className="font-medium">Page {page.pageNumber}</h4>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <Download className="h-4 w-4" />
-                              </Button>
-                            </div>
-                            <div className="text-xs text-muted-foreground line-clamp-2">
-                              {page.textContent || 'No extracted text available'}
-                            </div>
-                            {page.indexedKeywords && page.indexedKeywords.length > 0 && (
-                              <div className="mt-2 flex flex-wrap gap-1">
-                                {page.indexedKeywords.map((keyword, idx) => (
-                                  <span 
-                                    key={idx}
-                                    className="px-1.5 py-0.5 bg-gray-100 text-xs rounded"
-                                  >
-                                    {keyword}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
+              <CardHeader>
+                <CardTitle>Manage Tags</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {docTags.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium mb-2">Applied tags</p>
+                    <div className="flex flex-wrap gap-2">
+                      {docTags.map(tag => (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() => handleDetachTag(tag.id)}
+                          className="flex items-center gap-1 px-2 py-1 rounded-md text-xs hover:opacity-70"
+                          style={{ backgroundColor: `${tag.color}20` }}
+                          title="Click to remove"
+                        >
+                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: tag.color }} />
+                          {tag.name} ×
+                        </button>
                       ))}
                     </div>
-                  ) : (
-                    <div className="text-center py-12 border-2 border-dashed rounded-md border-muted">
-                      <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <h3 className="text-base font-medium">No indexed pages available</h3>
-                      <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-                        This document hasn't been indexed yet or doesn't contain extractable pages.
-                      </p>
-                      <Button variant="outline" className="mt-4">
-                        Start Indexing
-                      </Button>
+                  </div>
+                )}
+
+                {unattachedTags.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium mb-2">Add tags</p>
+                    <div className="flex flex-wrap gap-2">
+                      {unattachedTags.map(tag => (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() => handleAttachTag(tag.id)}
+                          className="flex items-center gap-1 px-2 py-1 rounded-md text-xs border hover:opacity-70"
+                        >
+                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: tag.color }} />
+                          {tag.name} +
+                        </button>
+                      ))}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
+
+                {allTags.length === 0 && (
+                  <div className="text-center py-8">
+                    <TagIcon className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">No tags available. Create tags in Tags Management.</p>
+                    <Button variant="outline" size="sm" className="mt-3" asChild>
+                      <Link to="/tags">Manage Tags</Link>
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
-          
-          <TabsContent value="comments" className="space-y-4">
+
+          <TabsContent value="history">
             <Card>
-              <CardContent className="p-6">
-                {/* Comments section */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium">Comments</h3>
-                  
-                  {/* Comment list */}
-                  <div className="space-y-4 mb-6">
-                    {document.comments.length > 0 ? (
-                      document.comments
-                        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                        .map(comment => (
-                          <div key={comment.id} className="flex gap-3 py-3 border-b last:border-0">
-                            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                              <span className="font-medium text-primary text-sm">
-                                {comment.userName.charAt(0).toUpperCase()}
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Version History</CardTitle>
+                <Button size="sm" onClick={() => setIsVersionDialogOpen(true)}>
+                  <Upload className="h-4 w-4 mr-1" />
+                  Upload New Version
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {versions.length > 0 && (
+                  <div className="space-y-3">
+                    {versions.map(v => (
+                      <div key={v.id} className="flex items-center gap-3 p-3 rounded-lg border">
+                        <Clock className="h-5 w-5 text-muted-foreground shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-sm">Version {v.version}</span>
+                            <span className="text-xs text-muted-foreground">{formatDate(v.created_at)}</span>
+                          </div>
+                          {v.uploaded_by_name && (
+                            <p className="text-xs text-muted-foreground">by {v.uploaded_by_name}</p>
+                          )}
+                          {v.change_note && (
+                            <p className="text-xs text-muted-foreground mt-0.5 italic">{v.change_note}</p>
+                          )}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => versionsService.download(doc.id, v.id, doc.file_name)}
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {versions.length === 0 && (
+                  <div className="text-center py-8">
+                    <History className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">No version history yet.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="comments">
+            <Card>
+              <CardHeader>
+                <CardTitle>Comments</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Existing comments */}
+                {comments.length > 0 ? (
+                  <div className="space-y-3">
+                    {comments.map(c => (
+                      <div key={c.id} className="flex gap-3 group">
+                        <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold shrink-0">
+                          {c.user_name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium">{c.user_name}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(c.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                               </span>
                             </div>
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-medium text-sm">{comment.userName}</span>
-                                <span className="text-xs text-muted-foreground">
-                                  {formatDate(comment.createdAt)}
-                                </span>
-                              </div>
-                              <p className="text-sm">{comment.content}</p>
-                            </div>
+                            {(currentUser?.id === c.user_id || currentUser?.role === 'admin') && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteComment(c.id)}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                                aria-label="Delete comment"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
-                        ))
-                    ) : (
-                      <div className="text-center py-8">
-                        <MessageSquare className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
-                        <h4 className="text-sm font-medium">No comments yet</h4>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Be the first to comment on this document
-                        </p>
+                          <p className="text-sm text-muted-foreground mt-0.5 whitespace-pre-wrap">{c.content}</p>
+                        </div>
                       </div>
-                    )}
+                    ))}
                   </div>
-                  
-                  {/* Add comment form */}
-                  <div className="space-y-3">
-                    <h4 className="text-sm font-medium">Add a comment</h4>
-                    <Textarea
-                      placeholder="Write a comment..."
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      rows={3}
-                    />
-                    <div className="flex justify-end">
-                      <Button 
-                        onClick={handleSubmitComment}
-                        disabled={!newComment.trim() || isSubmitting}
-                      >
-                        {isSubmitting ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Posting...
-                          </>
-                        ) : 'Post Comment'}
-                      </Button>
-                    </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <MessageSquare className="h-10 w-10 text-muted-foreground mx-auto mb-2 opacity-40" />
+                    <p className="text-sm text-muted-foreground">No comments yet. Be the first to comment.</p>
                   </div>
-                </div>
+                )}
+
+                {/* New comment form */}
+                <form onSubmit={handleAddComment} className="flex gap-2 pt-2 border-t">
+                  <Textarea
+                    placeholder="Add a comment…"
+                    value={commentText}
+                    onChange={e => setCommentText(e.target.value)}
+                    rows={2}
+                    className="resize-none"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        void handleAddComment(e as unknown as React.SyntheticEvent<HTMLFormElement>);
+                      }
+                    }}
+                  />
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled={!commentText.trim() || isPostingComment}
+                    className="shrink-0 self-end"
+                    aria-label="Post comment"
+                  >
+                    {isPostingComment
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <Send className="h-4 w-4" />}
+                  </Button>
+                </form>
               </CardContent>
             </Card>
           </TabsContent>
-          
-          <TabsContent value="accessibility" className="space-y-4">
+
+          <TabsContent value="reviews">
             <Card>
-              <CardContent className="p-6">
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium">File Accessibility Features</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    This {document.type.toUpperCase()} file has the following accessibility features available:
-                  </p>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="border rounded-lg p-4">
-                      <h4 className="font-medium mb-2">Content Features</h4>
-                      <ul className="space-y-2">
-                        <li className="flex items-center justify-between">
-                          <span>Content Preview</span>
-                          {document.accessibilityFeatures?.contentPreview ? (
-                            <span className="text-green-600 font-medium">Available</span>
-                          ) : (
-                            <span className="text-red-500 font-medium">Not Available</span>
-                          )}
-                        </li>
-                        <li className="flex items-center justify-between">
-                          <span>Text Extraction</span>
-                          {document.accessibilityFeatures?.textExtraction ? (
-                            <span className="text-green-600 font-medium">Available</span>
-                          ) : (
-                            <span className="text-red-500 font-medium">Not Available</span>
-                          )}
-                        </li>
-                        <li className="flex items-center justify-between">
-                          <span>Text Search</span>
-                          {document.accessibilityFeatures?.searchable ? (
-                            <span className="text-green-600 font-medium">Available</span>
-                          ) : (
-                            <span className="text-red-500 font-medium">Not Available</span>
-                          )}
-                        </li>
-                      </ul>
+              <CardHeader><CardTitle className="text-base">Review History</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                {reviews.map(rev => (
+                  <div key={rev.id} className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
+                    <div className={cn(
+                      'mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0 text-sm',
+                      rev.decision === 'approved' ? 'bg-green-100 text-green-700' :
+                      rev.decision === 'rejected' ? 'bg-red-100 text-red-700' :
+                      'bg-amber-100 text-amber-700'
+                    )}>
+                      {rev.decision === 'approved' ? '✓' : rev.decision === 'rejected' ? '✗' : '…'}
                     </div>
-                    
-                    <div className="border rounded-lg p-4">
-                      <h4 className="font-medium mb-2">Interaction Features</h4>
-                      <ul className="space-y-2">
-                        <li className="flex items-center justify-between">
-                          <span>Annotations</span>
-                          {document.accessibilityFeatures?.annotationSupport ? (
-                            <span className="text-green-600 font-medium">Available</span>
-                          ) : (
-                            <span className="text-red-500 font-medium">Not Available</span>
-                          )}
-                        </li>
-                        <li className="flex items-center justify-between">
-                          <span>Metadata Extraction</span>
-                          {document.accessibilityFeatures?.metadataExtraction ? (
-                            <span className="text-green-600 font-medium">Available</span>
-                          ) : (
-                            <span className="text-red-500 font-medium">Not Available</span>
-                          )}
-                        </li>
-                        <li className="flex items-center justify-between">
-                          <span>Desktop App Support</span>
-                          {document.accessibilityFeatures?.electronAppCompatible ? (
-                            <span className="text-green-600 font-medium">Available</span>
-                          ) : (
-                            <span className="text-red-500 font-medium">Not Available</span>
-                          )}
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-6">
-                    <h4 className="font-medium mb-2">File Type Compatibility</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {['pdf', 'docx', 'xlsx', 'pptx', 'jpg', 'mp4', 'mp3'].map(type => (
-                        <div
-                          key={type}
-                          className={`px-2 py-1 rounded-md text-xs ${
-                            document.type.toLowerCase() === type
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {type.toUpperCase()}
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Different file types have different levels of accessibility. Some formats like PDF and DOCX 
-                      provide rich accessibility features, while others like images and audio files have more limited options.
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-          
-          <TabsContent value="history" className="space-y-4">
-            <Card>
-              <CardContent className="p-6">
-                {/* Version history - in a real app, this would show document revisions */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium">Version History</h3>
-                  
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3 p-3 rounded-lg border">
-                      <Clock className="h-5 w-5 text-muted-foreground" />
-                      <div className="flex-1">
-                        <div className="flex justify-between">
-                          <span className="font-medium">Current version</span>
-                          <span className="text-sm text-muted-foreground">
-                            {formatDate(document.uploadDate)}
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Uploaded by {document.uploadedBy}
-                        </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium capitalize">{rev.decision}</span>
+                        {rev.reviewer_name && (
+                          <span className="text-xs text-muted-foreground">by {rev.reviewer_name}</span>
+                        )}
+                        {rev.decision === 'pending' && (
+                          <span className="text-xs text-muted-foreground">· submitted by {rev.submitter_name}</span>
+                        )}
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          {new Date(rev.reviewed_at ?? rev.created_at).toLocaleDateString()}
+                        </span>
                       </div>
-                    </div>
-                    
-                    <div className="text-center py-4 text-sm text-muted-foreground">
-                      No previous versions found
+                      {rev.note && <p className="text-sm text-muted-foreground mt-1">{rev.note}</p>}
                     </div>
                   </div>
-                </div>
+                ))}
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
       </div>
-      
-      {/* Delete confirmation dialog */}
+
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete document</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete "{document.name}"? This action cannot be undone.
+              Are you sure you want to delete "{doc.title}"? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
-          
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
             </DialogClose>
-            
-            <Button 
-              variant="destructive" 
-              onClick={handleDeleteDocument}
+            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isVersionDialogOpen} onOpenChange={open => { setIsVersionDialogOpen(open); if (!open) { setVersionFile(null); setVersionNote(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Upload New Version</DialogTitle>
+            <DialogDescription>
+              Replace the current file with a new version. The old file is preserved in history.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">File</label>
+              <Input
+                type="file"
+                onChange={e => setVersionFile(e.target.files?.[0] ?? null)}
+                className="cursor-pointer"
+              />
+              {versionFile && (
+                <p className="text-xs text-muted-foreground">{versionFile.name} — {(versionFile.size / 1024 / 1024).toFixed(2)} MB</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Change note (optional)</label>
+              <Textarea
+                placeholder="Describe what changed in this version…"
+                value={versionNote}
+                onChange={e => setVersionNote(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button onClick={handleUploadVersion} disabled={!versionFile || isUploadingVersion}>
+              {isUploadingVersion ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+              Upload
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Review decision dialog */}
+      <Dialog open={isReviewDialogOpen} onOpenChange={open => { setIsReviewDialogOpen(open); if (!open) { setReviewNote(''); setReviewAction(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="capitalize">{reviewAction} document</DialogTitle>
+            <DialogDescription>
+              {reviewAction === 'approve'
+                ? 'Approving will publish this document and notify the owner.'
+                : 'Rejecting will return this document to draft status and notify the owner.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Textarea
+              id="review-note"
+              placeholder="Add a note (optional)…"
+              value={reviewNote}
+              onChange={e => setReviewNote(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              onClick={handleReviewDecision}
+              disabled={isSubmittingReview}
+              variant={reviewAction === 'approve' ? 'default' : 'destructive'}
             >
-              Delete
+              {isSubmittingReview && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {reviewAction === 'approve' ? 'Approve & Publish' : 'Reject'}
             </Button>
           </DialogFooter>
         </DialogContent>

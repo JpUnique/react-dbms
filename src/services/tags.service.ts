@@ -10,7 +10,7 @@ export interface BackendTag {
 export const tagsService = {
   async list(): Promise<BackendTag[]> {
     const data = await api.get<{ tags: BackendTag[] }>('/tags');
-    return data.tags;
+    return data.tags ?? [];
   },
 
   async create(payload: { name: string; color?: string }): Promise<BackendTag> {
@@ -37,6 +37,11 @@ export const tagsService = {
 
   async getDocumentTags(documentId: string): Promise<BackendTag[]> {
     const data = await api.get<{ tags: BackendTag[] }>(`/tags/documents/${documentId}`);
-    return data.tags;
+    return data.tags ?? [];
+  },
+
+  async getDocumentsByTag(tagId: string): Promise<import('./documents.service').BackendDocument[]> {
+    const data = await api.get<{ documents: import('./documents.service').BackendDocument[] }>(`/tags/by-tag/${tagId}`);
+    return data.documents ?? [];
   },
 };

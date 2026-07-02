@@ -1,4 +1,5 @@
 import { api, API_BASE_URL } from './api';
+import type { BackendDocument } from './documents.service';
 
 export interface BackendShare {
   id: string;
@@ -25,17 +26,24 @@ export const sharesService = {
 
   async list(documentId?: string): Promise<BackendShare[]> {
     const query = documentId ? `?document_id=${encodeURIComponent(documentId)}` : '';
-    const data = await api.get<{ shares: BackendShare[] }>(`/shares${query}`);
-    return data.shares;
+    const data = await api.get<{ shares: BackendShare[] | null }>(`/shares${query}`);
+    return data.shares ?? [];
   },
 
   async revoke(id: string): Promise<void> {
     await api.delete(`/shares/${id}`);
   },
 
+  async publicAccess(token: string): Promise<{ document: BackendDocument; permission: string }> {
+    return api.get<{ document: BackendDocument; permission: string }>(`/shares/public/${token}`);
+  },
+
+  async publicDownload(token: string, password?: string): Promise<{ url: string; file_name: string }> {
+    return api.post<{ url: string; file_name: string }>(`/shares/public/${token}/download`, { password: password || '' });
+  },
+
   buildShareUrl(token: string): string {
-    // Frontend can build a user-facing URL that opens a public-share page
-    return `${window.location.origin}/share/${token}`;
+    return `${globalThis.location.origin}/share/${token}`;
   },
 
   getPublicApiUrl(token: string): string {

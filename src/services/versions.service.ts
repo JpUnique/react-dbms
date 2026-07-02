@@ -14,14 +14,14 @@ export interface DocumentVersion {
 
 export const versionsService = {
   async list(documentId: string): Promise<DocumentVersion[]> {
-    const data = await api.get<{ versions: DocumentVersion[] }>(`/documents/${documentId}/versions`);
-    return data.versions;
+    const data = await api.get<{ versions: DocumentVersion[] }>(`/documents/${documentId}/versions/get-versions`);
+    return data.versions ?? [];
   },
   async upload(documentId: string, file: File, changeNote?: string): Promise<DocumentVersion> {
     const formData = new FormData();
     formData.append('file', file);
     if (changeNote) formData.append('change_note', changeNote);
-    const data = await api.upload<{ version: DocumentVersion }>(`/documents/${documentId}/versions`, formData);
+    const data = await api.upload<{ version: DocumentVersion }>(`/documents/${documentId}/versions/upload-version`, formData);
     return data.version;
   },
   async download(documentId: string, versionId: string, fileName: string): Promise<void> {

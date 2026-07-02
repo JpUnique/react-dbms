@@ -1,4 +1,4 @@
-import { api, API_BASE_URL, tokenStorage } from './api';
+import { api } from './api';
 
 export interface BackendDocument {
   id: string;
@@ -13,7 +13,7 @@ export interface BackendDocument {
   owner_id: string;
   owner_name?: string | null;
   department?: string | null;
-  status: 'draft' | 'published' | 'archived';
+  status: 'draft' | 'published' | 'archived' | 'pending_review';
   is_starred: boolean;
   version: number;
   last_accessed?: string | null;
@@ -28,6 +28,8 @@ export interface DocumentFilters {
   starred?: boolean;
   owner_id?: string;
   search?: string;
+  limit?: number;
+  page?: number;
 }
 
 function buildQuery(params: Record<string, string | undefined>): string {
@@ -45,9 +47,11 @@ export const documentsService = {
       owner_id: filters?.owner_id,
       search: filters?.search,
       starred: filters?.starred ? 'true' : undefined,
+      limit: filters?.limit !== undefined ? String(filters.limit) : undefined,
+      page: filters?.page !== undefined ? String(filters.page) : undefined,
     };
     const data = await api.get<{ documents: BackendDocument[] }>(`/documents${buildQuery(query)}`);
-    return data.documents;
+    return data.documents ?? [];
   },
 
   async get(id: string): Promise<BackendDocument> {
@@ -79,6 +83,11 @@ export const documentsService = {
     return data.document;
   },
 
+  async moveToFolder(id: string, folderId: string | null): Promise<BackendDocument> {
+    const data = await api.patch<{ document: BackendDocument }>(`/documents/${id}`, { folder_id: folderId });
+    return data.document;
+  },
+
   async delete(id: string): Promise<void> {
     await api.delete(`/documents/${id}`);
   },
@@ -88,22 +97,17 @@ export const documentsService = {
     return data.is_starred;
   },
 
-  getDownloadUrl(id: string): string {
-    return `${API_BASE_URL}/documents/${id}/download`;
+  async getPresignedUrl(id: string): Promise<{ url: string; file_name: string }> {
+    return api.get<{ url: string; file_name: string }>(`/documents/${id}/download`);
   },
 
   async download(id: string, fileName: string): Promise<void> {
-    const token = tokenStorage.getAccessToken();
-    const res = await fetch(this.getDownloadUrl(id), {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!res.ok) throw new Error('Download failed');
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const { url, file_name } = await this.getPresignedUrl(id);
+    const a = globalThis.document.createElement('a');
     a.href = url;
-    a.download = fileName;
+    a.download = file_name || fileName;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
     a.click();
-    URL.revokeObjectURL(url);
   },
 };

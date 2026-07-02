@@ -34,9 +34,11 @@ const LicenseManagement: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Check if user is admin
+  // Check if user is logged in
+  // TEMP-NO-ROLES: admin-only check disabled for testing — restore
+  // `|| currentUser.role !== 'admin'` once role-based access is reintroduced.
   useEffect(() => {
-    if (!currentUser || currentUser.role !== 'admin') {
+    if (!currentUser) {
       navigate('/');
     }
   }, [currentUser, navigate]);

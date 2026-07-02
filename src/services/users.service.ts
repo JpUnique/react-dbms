@@ -7,6 +7,7 @@ export interface User extends AuthUser {
 }
 
 export interface UserFilters {
+  [key: string]: string | undefined;
   department?: string;
   role?: string;
   status?: string;
@@ -22,6 +23,12 @@ function buildQuery(params: Record<string, string | undefined>): string {
 export const usersService = {
   async list(filters?: UserFilters): Promise<User[]> {
     const data = await api.get<{ users: User[] }>(`/users${buildQuery(filters || {})}`);
+    return data.users;
+  },
+
+  // Available to all authenticated users — returns safe public fields only
+  async directory(): Promise<User[]> {
+    const data = await api.get<{ users: User[] }>('/users/directory');
     return data.users;
   },
 
@@ -43,6 +50,11 @@ export const usersService = {
 
   async update(id: string, payload: Partial<User>): Promise<User> {
     const data = await api.patch<{ user: User }>(`/users/${id}`, payload);
+    return data.user;
+  },
+
+  async toggleStatus(id: string, status: 'active' | 'inactive'): Promise<User> {
+    const data = await api.patch<{ user: User }>(`/users/${id}/status`, { status });
     return data.user;
   },
 

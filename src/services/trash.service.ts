@@ -4,7 +4,7 @@ import type { BackendDocument } from './documents.service';
 export const trashService = {
   async list(): Promise<BackendDocument[]> {
     const data = await api.get<{ documents: BackendDocument[] }>('/trash');
-    return data.documents;
+    return data.documents ?? [];
   },
   async restore(id: string): Promise<BackendDocument> {
     const data = await api.post<{ document: BackendDocument }>(`/trash/${id}/restore`);

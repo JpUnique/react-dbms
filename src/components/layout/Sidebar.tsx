@@ -1,263 +1,375 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { useDocuments } from '@/context/DocumentContext';
+import { foldersService, tagsService } from '@/services';
+import type { BackendFolder, BackendTag } from '@/services';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  FileText, FolderClosed, Tag, Settings, PlusCircle, ChevronRight, ChevronDown, 
-  Users, Bell, BookMarked, Star, Home, Menu, X
+import { Badge } from '@/components/ui/badge';
+import {
+  Files, FolderOpen, Database, PlusCircle,
+  ChevronRight, ChevronDown, UsersRound, Bookmark, History,
+  Menu, X, Trash2, Shield, Settings2, LayoutDashboard, ClipboardCheck,
+  Share2, Tag, LayoutGrid, UserCog, MessageSquare, BarChart3, Link2,
 } from 'lucide-react';
-import { BRANDING, getLogoUrl } from '@/config/branding';
+
+// ── Sub-components defined outside Sidebar to avoid re-definition on every render ──
+
+const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <p className="px-3 pt-5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+    {children}
+  </p>
+);
+
+interface NavItemProps {
+  to: string;
+  icon: React.ElementType;
+  iconColor?: string; // tailwind color class applied when inactive, e.g. "text-blue-500"
+  label: string;
+  count?: number;
+  isAdmin?: boolean;
+  userRole?: string;
+}
+
+const NavItem: React.FC<NavItemProps> = ({ to, icon: Icon, iconColor, label, count, isAdmin, userRole }) => {
+  const location = useLocation();
+  // TEMP-NO-ROLES: admin-only nav gating disabled for testing — restore
+  // `if (isAdmin && userRole !== 'admin') return null;` once role-based
+  // access is reintroduced.
+  void isAdmin;
+  void userRole;
+  const isActive = location.pathname === to;
+  return (
+    <Link
+      to={to}
+      className={cn(
+        'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+        isActive
+          ? 'bg-primary text-primary-foreground shadow-sm'
+          : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+      )}
+    >
+      <span className={cn(
+        'flex items-center justify-center h-6 w-6 rounded-md shrink-0 transition-colors',
+        isActive ? 'bg-primary-foreground/15' : ''
+      )}>
+        <Icon size={15} className={isActive ? undefined : iconColor} />
+      </span>
+      <span className="flex-1 truncate">{label}</span>
+      {count !== undefined && (
+        <Badge variant={isActive ? 'secondary' : 'outline'} className="text-[10px] h-4 px-1.5">
+          {count}
+        </Badge>
+      )}
+    </Link>
+  );
+};
+
+interface FolderTreeProps {
+  folders: BackendFolder[];
+  expandedFolders: string[];
+  toggleFolder: (id: string) => void;
+  depth?: number;
+  parentId?: string | null;
+}
+
+const FolderTree: React.FC<FolderTreeProps> = ({
+  folders, expandedFolders, toggleFolder, depth = 0, parentId = null,
+}) => {
+  const location = useLocation();
+  const children = folders.filter(f => (f.parent_id ?? null) === parentId);
+
+  return (
+    <>
+      {children.map(folder => {
+        const isExpanded = expandedFolders.includes(folder.id);
+        const hasChildren = folders.some(f => (f.parent_id ?? null) === folder.id);
+        const isActive = location.pathname === `/folders/${folder.id}`;
+
+        let expandIcon: React.ReactNode;
+        if (!hasChildren) {
+          expandIcon = <span className="w-3" />;
+        } else if (isExpanded) {
+          expandIcon = <ChevronDown size={12} className="text-muted-foreground" />;
+        } else {
+          expandIcon = <ChevronRight size={12} className="text-muted-foreground" />;
+        }
+
+        return (
+          <div key={folder.id} style={{ paddingLeft: depth > 0 ? `${depth * 12}px` : undefined }}>
+            <div
+              className={cn(
+                'flex items-center gap-1.5 py-1 px-1 rounded-md text-sm transition-colors',
+                isActive ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
+              )}
+            >
+              <button
+                type="button"
+                aria-label={isExpanded ? `Collapse ${folder.name}` : `Expand ${folder.name}`}
+                className="p-0.5 hover:bg-primary/10 rounded shrink-0"
+                onClick={() => toggleFolder(folder.id)}
+              >
+                {expandIcon}
+              </button>
+              <Link
+                to={`/folders/${folder.id}`}
+                className="flex items-center gap-1.5 flex-1 min-w-0 py-0.5"
+                onClick={e => e.stopPropagation()}
+              >
+                <FolderOpen size={14} className="text-amber-500 shrink-0" />
+                <span className="truncate text-xs">{folder.name}</span>
+                {!!folder.document_count && (
+                  <span className="text-[10px] text-muted-foreground ml-auto pr-1">{folder.document_count}</span>
+                )}
+              </Link>
+            </div>
+            {isExpanded && (
+              <FolderTree
+                folders={folders}
+                expandedFolders={expandedFolders}
+                toggleFolder={toggleFolder}
+                depth={depth + 1}
+                parentId={folder.id}
+              />
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+};
+
+// ── Main Sidebar ─────────────────────────────────────────────────────────────
 
 const Sidebar = () => {
   const location = useLocation();
   const { currentUser } = useAuth();
-  const { folders, tags } = useDocuments();
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [expandedFolders, setExpandedFolders] = useState<string[]>(['root']);
+  const [folders, setFolders] = useState<BackendFolder[]>([]);
+  const [tags, setTags] = useState<BackendTag[]>([]);
+  const [expandedFolders, setExpandedFolders] = useState<string[]>([]);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  // Get root level folders
-  const rootFolders = folders.filter(folder => folder.parentId === null && folder.id !== 'root');
-  
-  const toggleFolder = (folderId: string) => {
-    setExpandedFolders(prev => 
-      prev.includes(folderId) 
-        ? prev.filter(id => id !== folderId) 
-        : [...prev, folderId]
-    );
-  };
-  
-  // Sidebar item component
-  const NavItem = ({ 
-    to, 
-    icon: Icon, 
-    label, 
-    count 
-  }: { 
-    to: string, 
-    icon: React.ElementType, 
-    label: string,
-    count?: number
-  }) => {
-    const isActive = location.pathname === to;
-    
-    return (
-      <Link 
-        to={to} 
-        className={cn(
-          "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
-          isActive 
-            ? "bg-primary/10 text-primary font-medium" 
-            : "hover:bg-primary/5 text-muted-foreground hover:text-primary"
-        )}
-      >
-        <Icon size={18} />
-        <span className="flex-1">{label}</span>
-        {count !== undefined && (
-          <span className="bg-primary/10 text-primary text-xs px-2 py-1 rounded-full">
-            {count}
-          </span>
-        )}
-      </Link>
-    );
-  };
-  
-  // Recursive folder rendering
-  const renderFolders = (parentId: string | null, depth = 0) => {
-    const filteredFolders = folders.filter(folder => folder.parentId === parentId && folder.id !== 'root');
-    
-    return filteredFolders.map(folder => {
-      const isExpanded = expandedFolders.includes(folder.id);
-      const hasChildren = folders.some(f => f.parentId === folder.id);
-      
-      return (
-        <div key={folder.id} className={cn("pl-[7px]", depth > 0 && "ml-4")}>
-          <div 
-            className="flex items-center gap-1 py-1 rounded-sm cursor-pointer text-sm group"
-            onClick={() => toggleFolder(folder.id)}
-          >
-            <button className="p-1 hover:bg-primary/10 rounded">
-              {hasChildren ? (
-                isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />
-              ) : (
-                <span className="w-[14px]" />
-              )}
-            </button>
-            <Link 
-              to={`/folders/${folder.id}`} 
-              className="flex items-center gap-2 flex-1 px-2 py-1 rounded hover:bg-primary/5"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <FolderClosed size={16} className="text-amber-500" />
-              <span className="truncate">{folder.name}</span>
-              <span className="text-xs text-muted-foreground ml-auto">
-                {folder.documents.length}
-              </span>
-            </Link>
-          </div>
-          
-          {isExpanded && renderFolders(folder.id, depth + 1)}
-        </div>
-      );
-    });
-  };
+  const refreshTags    = () => tagsService.list().then(setTags).catch(() => {});
+  const refreshFolders = () => foldersService.list().then(setFolders).catch(() => {});
 
-  // Tags section
-  const renderTags = () => {
-    return tags.map(tag => (
-      <Link 
-        key={tag.id} 
-        to={`/tag/${tag.id}`}
-        className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-primary/5"
-      >
-        <div 
-          className="h-3 w-3 rounded-full" 
-          style={{ backgroundColor: tag.color }} 
-        />
-        <span className="truncate">{tag.name}</span>
-      </Link>
-    ));
-  };
-  
+  useEffect(() => {
+    refreshFolders();
+    refreshTags();
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('tags-updated',    refreshTags);
+    window.addEventListener('folders-updated', refreshFolders);
+    return () => {
+      window.removeEventListener('tags-updated',    refreshTags);
+      window.removeEventListener('folders-updated', refreshFolders);
+    };
+  }, []);
+
+  useEffect(() => { setIsMobileOpen(false); }, [location.pathname]);
+
+  const toggleFolder = (id: string) =>
+    setExpandedFolders(prev =>
+      prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
+    );
+
+  const role = currentUser?.role;
+
   const sidebarContent = (
-    <div className="flex flex-col h-full">
-      {/* Header with logo */}
-      <div className="flex items-center justify-between px-4 py-3">
-        <Link to="/" className="flex items-center gap-2">
-          <img src="/assets/images/logo.png" alt="DocManager Logo" className="h-8 w-8" />
-          <span className="font-bold text-lg text-primary">DocManager</span>
+    <div className="flex flex-col h-full bg-card border-r">
+      {/* Logo */}
+      <div className="flex items-center justify-between px-4 py-4">
+        <Link to="/" className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-lg bg-linear-to-br from-primary to-primary/75 flex items-center justify-center shrink-0 shadow-sm">
+            <Database className="h-4 w-4 text-primary-foreground" />
+          </div>
+          <span className="font-bold text-base tracking-tight">PetroData</span>
         </Link>
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          className="md:hidden" 
-          onClick={() => setIsMobileSidebarOpen(false)}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden h-7 w-7"
+          onClick={() => setIsMobileOpen(false)}
         >
-          <X size={18} />
+          <X size={16} />
         </Button>
       </div>
-      
-      <Separator />
-      
-      {/* New document button */}
-      <div className="px-4 py-3">
-        <Button className="w-full flex gap-2" asChild>
+
+      {/* Upload CTA */}
+      <div className="px-3 pb-3">
+        <Button className="w-full gap-2 shadow-sm" asChild size="sm">
           <Link to="/documents/new">
-            <PlusCircle size={16} />
-            <span>New Document</span>
+            <PlusCircle size={15} />
+            New Document
           </Link>
         </Button>
       </div>
-      
-      {/* Sidebar navigation */}
-      <ScrollArea className="flex-1 px-2 py-2">
-        <div className="space-y-1 pb-2">
-          <NavItem to="/" icon={Home} label="Dashboard" />
-          <NavItem to="/documents" icon={FileText} label="All Documents" />
-          <NavItem to="/starred" icon={Star} label="Starred" />
-          <NavItem to="/recent" icon={BookMarked} label="Recent" />
-          {currentUser?.role === 'admin' && (
-            <NavItem to="/users" icon={Users} label="User Management" />
-          )}
-          {/* License Management - Temporarily hidden */}
-          {/* {currentUser?.id === 'admin-1' && (
-            <NavItem to="/admin/licenses" icon={Settings} label="License Management" />
-          )} */}
+
+      <ScrollArea className="flex-1 px-2">
+        <SectionLabel>Main</SectionLabel>
+        <div className="space-y-0.5">
+          <NavItem to="/"                    icon={LayoutDashboard} iconColor="text-blue-500"   label="Dashboard"         userRole={role} />
+          <NavItem to="/documents"           icon={Files}           iconColor="text-sky-500"   label="Documents"         userRole={role} />
+          <NavItem to="/documents/browse"    icon={LayoutGrid}      iconColor="text-cyan-500"  label="Browse Documents"  userRole={role} />
+          <NavItem to="/tags"                icon={Tag}             iconColor="text-pink-500"  label="Tags"              userRole={role} />
+          <NavItem to="/starred"             icon={Bookmark}        iconColor="text-amber-500" label="Starred"           userRole={role} />
+          <NavItem to="/recent"              icon={History}         iconColor="text-violet-500" label="Recent"           userRole={role} />
+          <NavItem to="/trash"               icon={Trash2}          iconColor="text-red-500"   label="Trash"             userRole={role} />
         </div>
-        
-        <div className="mt-6">
-          <div className="px-3 mb-2 text-xs font-semibold text-muted-foreground">
-            FOLDERS
-          </div>
-          {/* Root folder */}
-          <Link 
-            to="/folders/root" 
-            className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-primary/5"
-          >
-            <FolderClosed size={16} className="text-amber-500" />
-            <span>All Documents</span>
-          </Link>
-          
-          {/* User folders */}
-          {renderFolders(null)}
+
+        <NavItem to="/chat" icon={MessageSquare} iconColor="text-violet-500" label="AI Chat" userRole={role} />
+
+        <SectionLabel>Team</SectionLabel>
+        <div className="space-y-0.5">
+          <NavItem to="/users"            icon={UserCog}    iconColor="text-indigo-500"  label="User Management" userRole={role} />
+          <NavItem to="/collaborators"    icon={UsersRound} iconColor="text-emerald-500" label="Collaborators"   userRole={role} />
+          <NavItem to="/documents/shared" icon={Share2}     iconColor="text-teal-500"    label="Shared with Me"  userRole={role} />
+          <NavItem to="/share-links"      icon={Link2}      iconColor="text-cyan-500"    label="My Share Links"  userRole={role} />
         </div>
-        
-        <div className="mt-6">
-          <div className="px-3 mb-2 text-xs font-semibold text-muted-foreground flex items-center justify-between">
-            <span>TAGS</span>
-            <Link 
-              to="/tags/manage" 
-              className="text-primary hover:underline text-xs"
-            >
-              Manage
-            </Link>
-          </div>
-          {renderTags()}
-        </div>
+
+        {/* TEMP-NO-ROLES: admin section shown to everyone while testing —
+            restore `role === 'admin' &&` once role-based access is
+            reintroduced. */}
+        {(
+          <>
+            <SectionLabel>Admin</SectionLabel>
+            <div className="space-y-0.5">
+              <NavItem to="/review-queue" icon={ClipboardCheck} iconColor="text-purple-500"  label="Review Queue" isAdmin userRole={role} />
+              <NavItem to="/audit"        icon={Shield}         iconColor="text-orange-500"  label="Audit Log"    isAdmin userRole={role} />
+              <NavItem to="/reports"      icon={BarChart3}      iconColor="text-fuchsia-500" label="Reports"      isAdmin userRole={role} />
+            </div>
+          </>
+        )}
+
+        {folders.length > 0 && (
+          <>
+            <SectionLabel>Folders</SectionLabel>
+            <div className="space-y-0.5 mb-1">
+              <Link
+                to="/folders/root"
+                className={cn(
+                  'flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors',
+                  location.pathname === '/folders/root'
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-muted-foreground hover:bg-accent'
+                )}
+              >
+                <FolderOpen size={13} className="text-amber-500" />
+                <span>All Files</span>
+              </Link>
+              <FolderTree
+                folders={folders}
+                expandedFolders={expandedFolders}
+                toggleFolder={toggleFolder}
+              />
+            </div>
+          </>
+        )}
+
+        {tags.length > 0 && (
+          <>
+            <SectionLabel>
+              <span className="flex items-center justify-between">
+                Tags
+                <Link to="/tags" className="text-primary normal-case tracking-normal font-medium hover:underline">
+                  Manage
+                </Link>
+              </span>
+            </SectionLabel>
+            <div className="space-y-0.5 mb-4">
+              {tags.map(tag => (
+                <Link
+                  key={tag.id}
+                  to={`/tags/${tag.id}`}
+                  className={cn(
+                    'flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors',
+                    location.pathname === `/tags/${tag.id}`
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground hover:bg-accent'
+                  )}
+                >
+                  <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
+                  <span className="truncate">{tag.name}</span>
+                </Link>
+              ))}
+            </div>
+          </>
+        )}
       </ScrollArea>
-      
-      {/* User section */}
-      {currentUser && (
-        <div className="mt-auto px-4 py-3 border-t">
+
+      {/* Bottom: settings + profile */}
+      <div className="border-t px-2 py-2 space-y-0.5">
+        <Link
+          to="/settings"
+          className={cn(
+            'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+            location.pathname === '/settings'
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+          )}
+        >
+          <Settings2 size={16} className={location.pathname === '/settings' ? undefined : 'text-slate-500'} />
+          <span>Settings</span>
+        </Link>
+
+        {currentUser && (
           <Link
             to="/profile"
-            className="flex items-center gap-3 p-2 rounded-md hover:bg-primary/5"
+            className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-accent transition-colors"
           >
-            <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center">
-              <span className="font-medium text-primary">
+            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <span className="text-xs font-semibold text-primary">
                 {currentUser.name.charAt(0).toUpperCase()}
               </span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{currentUser.name}</p>
-              <p className="text-xs text-muted-foreground truncate">{currentUser.email}</p>
+              <p className="text-sm font-medium truncate leading-tight">{currentUser.name}</p>
+              <p className="text-xs text-muted-foreground truncate leading-tight">{currentUser.email}</p>
             </div>
           </Link>
-        </div>
-      )}
+        )}
+      </div>
     </div>
-  );
-
-  // Mobile menu button
-  const mobileMenuButton = (
-    <Button 
-      variant="ghost" 
-      size="icon" 
-      className="md:hidden fixed top-4 left-4 z-50 bg-background shadow-sm"
-      onClick={() => setIsMobileSidebarOpen(true)}
-    >
-      <Menu size={18} />
-    </Button>
   );
 
   return (
     <>
-      {/* Mobile menu button */}
-      {!isMobileSidebarOpen && mobileMenuButton}
-      
-      {/* Mobile sidebar */}
-      <div 
+      {/* Mobile hamburger */}
+      {!isMobileOpen && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="fixed top-3 left-3 z-50 md:hidden h-9 w-9 bg-card border shadow-sm"
+          onClick={() => setIsMobileOpen(true)}
+          aria-label="Open navigation"
+        >
+          <Menu size={18} />
+        </Button>
+      )}
+
+      {/* Mobile overlay backdrop */}
+      {isMobileOpen && (
+        <div
+          aria-hidden="true"
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setIsMobileOpen(false)}
+        />
+      )}
+
+      {/* Mobile drawer */}
+      <aside
         className={cn(
-          "fixed inset-0 z-40 bg-black/50 md:hidden",
-          isMobileSidebarOpen ? "block" : "hidden"
+          'fixed inset-y-0 left-0 z-50 w-64 transition-transform duration-300 md:hidden',
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full'
         )}
-        onClick={() => setIsMobileSidebarOpen(false)}
-      />
-      
-      {/* Sidebar for both mobile and desktop */}
-      <aside 
-        className={cn(
-          "bg-background border-r w-full max-w-[250px] h-full flex-col z-50",
-          "transition-all duration-300 ease-in-out",
-          // Mobile styles
-          "fixed top-0 bottom-0 left-0 md:static",
-          isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-        )}
+        aria-label="Navigation"
       >
+        {sidebarContent}
+      </aside>
+
+      {/* Desktop static sidebar */}
+      <aside className="hidden md:flex w-60 shrink-0 flex-col h-screen sticky top-0" aria-label="Navigation">
         {sidebarContent}
       </aside>
     </>
