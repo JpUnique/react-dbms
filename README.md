@@ -1,61 +1,104 @@
-# Shadcn-UI Template Usage Instructions
+# PetroData
 
-## technology stack
+The frontend for **PetroData** — a document management system with mandatory two-factor authentication, per-user and link-based document sharing, activity reporting (with PDF export), and an AI-powered chat over your own documents.
 
-This project is built with:
+Talks to the [go-dbms](../go-dbms) Go backend over HTTP.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Features
 
-All shadcn/ui components have been downloaded under `@/components/ui`.
+- **Auth** — two-step login (password, then a 6-digit code from an authenticator app), mandatory 2FA setup walkthrough (QR code + recovery codes) for every new account, password reset via TOTP/recovery code (no email required).
+- **Documents** — upload, versioning, folders, tags, starring, drag-and-drop browsing, in-app preview/streaming, soft-delete to Trash (restore or empty permanently).
+- **Sharing** — generate public share links (optional password + expiry) *or* share a document directly with another user's account (with a notification and a "Shared with Me" page); "My Share Links" manages everything you've shared out.
+- **Collaboration** — comments, watch/follow documents, an admin review & approval queue, an in-app notification bell.
+- **Reports** — every user can generate a report of their own activity, or (for admins) a system-wide view, across Today / Yesterday / Last 7 days / Last 30 days — with a one-click PDF download.
+- **Admin** — user management, department stats, audit log, license activation screens.
+- **AI chat** — ask questions answered from your own uploaded documents.
+- Light/dark theme, fully responsive layout.
 
-## File Structure
+## Tech stack
 
-- `index.html` - HTML entry point
-- `vite.config.ts` - Vite configuration file
-- `tailwind.config.js` - Tailwind CSS configuration file
-- `package.json` - NPM dependencies and scripts
-- `src/app.tsx` - Root component of the project
-- `src/main.tsx` - Project entry point
-- `src/index.css` - Existing CSS configuration
+| | |
+|---|---|
+| Build tool | [Vite](https://vitejs.dev) |
+| Language | TypeScript + React 19 |
+| UI | [shadcn/ui](https://ui.shadcn.com) (Radix primitives) + Tailwind CSS |
+| Routing | React Router v7 |
+| Data fetching | `@tanstack/react-query` + a small hand-written `fetch` client (`src/services/api.ts`) |
+| Charts | Recharts |
+| PDF export | jsPDF + jspdf-autotable |
+| Notifications (UI) | sonner (toasts) |
 
-## Components
+## Getting started
 
-- All shadcn/ui components are pre-downloaded and available at `@/components/ui`
+### Prerequisites
 
-## Styling
+- Node.js 18+
+- [pnpm](https://pnpm.io) — this project uses a `pnpm-lock.yaml`; don't install with `npm`/`yarn`, the lockfile will drift
+- The [go-dbms](../go-dbms) backend running locally (see its README)
 
-- Add global styles to `src/index.css` or create new CSS files as needed
-- Use Tailwind classes for styling components
+### Install & run
 
-## Development
-
-- Import components from `@/components/ui` in your React components
-- Customize the UI by modifying the Tailwind configuration
-
-## Note
-
-The `@/` path alias points to the `src/` directory
-
-# Commands
-
-**Install Dependencies**
-
-```shell
-pnpm i
+```bash
+pnpm install
+pnpm dev        # http://localhost:3000
 ```
 
-**Start Preview**
+### Environment
 
-```shell
-pnpm run dev
+One variable, in a `.env` file at the project root:
+
+```bash
+VITE_API_URL=http://localhost:4000/dbms/v1
 ```
 
-**To build**
+If omitted, `src/services/api.ts` falls back to that same default. The dev server binds `0.0.0.0:3000` and expects the backend's CORS to allow `http://localhost:3000` (already configured on the Go side for local dev).
 
-```shell
-pnpm run build
+### Other commands
+
+```bash
+pnpm build      # production build → dist/
+pnpm preview    # serve the production build locally
+pnpm lint       # eslint
 ```
+
+## Architecture
+
+- **`src/services/*.service.ts`** — the only place that talks to the backend. Each file is a plain object of async functions (`authService`, `documentsService`, `reportsService`, …), re-exported from `src/services/index.ts`. Pages call these directly; there's no separate "API layer" abstraction beyond this.
+- **`src/services/api.ts`** — the shared `fetch` wrapper: attaches the JWT (`Authorization: Bearer <token>` from `localStorage["token"]`) to every request, unwraps the backend's `{ data, error }` response envelope, and redirects to `/login` on a 401. All requests are sent with `cache: "no-store"` — this is dynamic, per-user data and should never be served from a stale browser cache.
+- **`src/context/`** — `AuthContext` (current user + the two-step login/2FA challenge state), `LicenseContext`, `ThemeContext`. Provider order in `App.tsx`: `QueryClientProvider → LicenseProvider → AuthProvider → BrowserRouter`.
+- **`src/components/layout/MainLayout.tsx`** — wraps every authenticated page with `Sidebar` + `TopBar`. Pages import and wrap themselves in it.
+- **`src/components/ui/`** — shadcn/ui components (Radix-based), generated by the shadcn CLI. Don't hand-edit these; add new ones with `pnpm dlx shadcn@latest add <component>`.
+- **`src/config/branding.ts`** — app name, logo, and color config in one place.
+- **`@/` path alias** resolves to `src/`.
+
+## Auth flow
+
+Login and registration are multi-step, matching the backend's mandatory-2FA model:
+
+1. **Login** (`/login`) — username + password. On success, the backend returns a short-lived challenge and a status: `2fa_required` (existing, verified account) → `/login/verify`, or `2fa_setup_required` (brand-new account, or an existing one that's never completed 2FA setup) → `/login/setup-2fa`.
+2. **`/login/verify`** — enter the 6-digit code from an authenticator app (or a recovery code). Issues the real access/refresh tokens.
+3. **`/login/setup-2fa`** — shown once per account: scan a QR code, confirm a code, then save a one-time set of recovery codes before continuing.
+4. **`/reset-password`** — forgot your password? Prove it with a fresh TOTP code or a recovery code — nothing is emailed.
+
+`ProtectedRoute` / `PublicRoute` in `App.tsx` gate routes based on `AuthContext`'s `currentUser`.
+
+## Project structure
+
+```text
+src/
+  pages/           — one file per route (Dashboard, DocumentView, Reports, Login, …)
+  components/
+    ui/            — shadcn/ui primitives (generated, don't hand-edit)
+    layout/        — Sidebar, TopBar, MainLayout
+    document/      — document-specific components (viewer, uploader, etc.)
+  services/        — API client + one *.service.ts per backend resource
+  context/         — AuthContext, LicenseContext, ThemeContext
+  lib/             — small standalone utilities (e.g. reportPdf.ts)
+  config/          — branding config
+  types/           — shared TypeScript types
+```
+
+## Notes
+
+- `src/context/DocumentContext.tsx`, `ActivityContext`, `UserManagementContext`, and `ShareContext` still exist but are **not** mounted in the provider tree — they're dead code left over from an earlier iteration; don't build on them.
+- The license system (`/activate-license`, `/admin/licenses`) is entirely client-side, backed by `localStorage` — there's no backend license endpoint.
