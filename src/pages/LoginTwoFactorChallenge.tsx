@@ -57,7 +57,7 @@ const LoginTwoFactorChallenge: React.FC = () => {
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
       <AuthBackground />
 
-      <div className="w-full max-w-md space-y-7" style={{ animation: "splash-text-in 0.6s ease-out both" }}>
+      <div className="relative z-10 w-full max-w-md space-y-7" style={{ animation: "splash-text-in 0.6s ease-out both" }}>
         <div className="text-center">
           <div className="flex justify-center mb-3">
             <div className="h-20 w-20 rounded-3xl bg-linear-to-br from-primary to-primary/70 shadow-xl shadow-primary/30 flex items-center justify-center">
