@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { LicenseProvider } from "@/context/LicenseContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import SplashScreen from "@/components/SplashScreen";
+import VideoBackground from "@/components/VideoBackground";
 
 // Pages
 import Dashboard from "@/pages/Dashboard";
@@ -87,6 +88,14 @@ const PublicRoute: React.FC<{
   return <>{element}</>;
 };
 
+//  Shows the shared video background for as long as the user is
+//  unauthenticated (splash, login, register, 2FA, reset password), and hides
+//  it once signed in so it isn't rendered behind the authenticated app.
+const ConditionalVideoBackground: React.FC = () => {
+  const { currentUser } = useAuth();
+  return currentUser ? null : <VideoBackground />;
+};
+
 const App = () => {
   const [splashDone, setSplashDone] = useState(false);
 
@@ -98,6 +107,7 @@ const App = () => {
       <Toaster />
       <LicenseProvider>
         <AuthProvider>
+          <ConditionalVideoBackground />
           <BrowserRouter>
                     <Routes>
                       {/*  PUBLIC ROUTES */}

@@ -1,14 +1,18 @@
 import React, { useEffect, useState } from "react";
-import AuthBackground from "./AuthBackground";
+import VideoBackground from "./VideoBackground";
 
 interface Props {
   onDone: () => void;
 }
 
+const SPLASH_DURATION_MS = 15000;
+const FADE_DURATION_MS = 600;
+
 const STATUS_STEPS = [
   "Initializing workspace…",
   "Securing connection…",
   "Loading document vault…",
+  "Preparing your documents…",
   "Almost ready…",
 ];
 
@@ -17,11 +21,14 @@ const SplashScreen: React.FC<Props> = ({ onDone }) => {
   const [statusIndex, setStatusIndex] = useState(0);
 
   useEffect(() => {
-    const fadeTimer = setTimeout(() => setFading(true), 2300);
-    const doneTimer = setTimeout(() => onDone(), 2900);
+    const fadeTimer = setTimeout(
+      () => setFading(true),
+      SPLASH_DURATION_MS - FADE_DURATION_MS,
+    );
+    const doneTimer = setTimeout(() => onDone(), SPLASH_DURATION_MS);
     const statusInterval = setInterval(
       () => setStatusIndex((i) => (i + 1) % STATUS_STEPS.length),
-      650,
+      SPLASH_DURATION_MS / STATUS_STEPS.length,
     );
     return () => {
       clearTimeout(fadeTimer);
@@ -34,57 +41,42 @@ const SplashScreen: React.FC<Props> = ({ onDone }) => {
     <div
       className="fixed inset-0 z-9999 flex items-center justify-center overflow-hidden"
       style={{
-        transition: "opacity 0.6s ease-out",
+        transition: `opacity ${FADE_DURATION_MS}ms ease-out`,
         opacity: fading ? 0 : 1,
         pointerEvents: fading ? "none" : "all",
       }}
     >
-      <AuthBackground variant="dark" particleCount={34} />
+      {/* Nested here (not just relying on the app-root instance) so this
+          fixed z-9999 layer is fully opaque on its own and hides the page
+          mounted underneath for the whole splash duration. */}
+      <VideoBackground />
 
       {/* Center content */}
-      <div className="relative z-10 flex flex-col items-center gap-5">
-        {/* Logo icon with orbiting pulse rings */}
-        <div className="relative flex items-center justify-center">
-          <div
-            className="absolute h-32 w-32 rounded-[28px] border border-blue-400/40"
-            style={{ animation: "pulse-ring 2.4s ease-out 0.4s infinite" }}
-          />
-          <div
-            className="absolute h-32 w-32 rounded-[28px] border border-violet-400/30"
-            style={{ animation: "pulse-ring 2.4s ease-out 1.2s infinite" }}
-          />
-          <div
-            className="h-32 w-32 rounded-[28px] flex items-center justify-center shadow-2xl"
-            style={{
-              background:
-                "linear-gradient(135deg, #3b82f6 0%, #6366f1 60%, #8b5cf6 100%)",
-              boxShadow:
-                "0 0 60px rgba(99,102,241,0.45), 0 0 120px rgba(59,130,246,0.2)",
-              animation:
-                "splash-logo-in 0.85s cubic-bezier(0.34,1.4,0.64,1) 0.1s both",
-            }}
-          >
-            <img
-              src="/assets/images/logo.png"
-              alt="PetroData"
-              className="h-24 w-24 object-contain"
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-              }}
-            />
-          </div>
-        </div>
+      <div className="relative z-10 flex flex-col items-center gap-6">
+        {/* Logo — plain mark, no surrounding box */}
+        <img
+          src="/assets/images/logo.png"
+          alt="PetroData"
+          className="h-44 w-44 object-contain drop-shadow-[0_0_50px_rgba(99,102,241,0.55)]"
+          style={{
+            animation:
+              "splash-logo-in 0.85s cubic-bezier(0.34,1.4,0.64,1) 0.1s both",
+          }}
+          onError={(e) => {
+            e.currentTarget.style.display = "none";
+          }}
+        />
 
         {/* Title */}
         <div
           className="text-center"
           style={{ animation: "splash-text-in 0.5s ease-out 0.7s both" }}
         >
-          <h1 className="text-4xl font-bold tracking-tight text-white">
+          <h1 className="text-6xl font-bold tracking-tight text-white">
             PetroData
           </h1>
-          <p className="mt-1.5 text-sm font-medium text-slate-400 tracking-wide uppercase">
-            Document Management System
+          <p className="mt-2 text-lg font-medium text-slate-300 tracking-wide uppercase">
+            Document Management Service
           </p>
         </div>
 

@@ -30,15 +30,11 @@ const AuthBackground: React.FC<Props> = ({ variant = "theme", particleCount = 26
   const particles = React.useMemo(() => buildParticles(particleCount), [particleCount]);
 
   return (
-    <div className="absolute inset-0 -z-10 overflow-hidden">
-      {/* Base gradient */}
-      <div
-        className={
-          isDark
-            ? "absolute inset-0 bg-[#060b14]"
-            : "absolute inset-0 bg-linear-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950"
-        }
-      />
+    <div className="absolute inset-0 z-5 overflow-hidden">
+      {/* Base layer is the shared <VideoBackground/> mounted at the app root
+          (z-0); everything below is a decorative accent layer on top of the
+          video. Non-negative z-index deliberately — see VideoBackground.tsx
+          for why negative z-index here breaks the stacking order. */}
 
       {/* Rotating conic mesh — the "living video" layer */}
       <div
