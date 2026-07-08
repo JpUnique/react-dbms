@@ -112,16 +112,18 @@ const Reports: React.FC = () => {
                 <UserIcon className="h-3.5 w-3.5" />
                 My Report
               </button>
-              <button
-                type="button"
-                onClick={() => handleScopeChange('all')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  scope === 'all' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Users className="h-3.5 w-3.5" />
-                All Users
-              </button>
+              {currentUser?.role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => handleScopeChange('all')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    scope === 'all' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Users className="h-3.5 w-3.5" />
+                  All Users
+                </button>
+              )}
             </div>
             <div className="flex rounded-lg border p-0.5 bg-muted/40">
               {PERIODS.map(p => (

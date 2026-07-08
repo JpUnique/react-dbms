@@ -236,7 +236,7 @@ const App = () => {
                       <Route
                         path="/settings/change-password"
                         element={
-                          <ProtectedRoute element={<ChangePassword />} />
+                          <AdminRoute element={<ChangePassword />} />
                         }
                       />
                       <Route
@@ -279,7 +279,7 @@ const App = () => {
                       />
                       <Route
                         path="/reports"
-                        element={<AdminRoute element={<Reports />} />}
+                        element={<ProtectedRoute element={<Reports />} />}
                       />
                       <Route
                         path="/search"

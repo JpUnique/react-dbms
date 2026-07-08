@@ -23,7 +23,7 @@ interface UserPreferences {
 
 const Settings: React.FC = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, currentUser } = useAuth();
   const { theme, setTheme } = useTheme();
 
   const [prefs, setPrefs] = useState<UserPreferences>({
@@ -93,18 +93,22 @@ const Settings: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="font-medium">Change Password</p>
-                <p className="text-sm text-muted-foreground">
-                  Update your password regularly
-                </p>
-              </div>
-              <Button variant="outline" onClick={() => navigate("/settings/change-password")}>
-                Change
-              </Button>
-            </div>
-            <Separator />
+            {currentUser?.role === 'admin' && (
+              <>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="font-medium">Change Password</p>
+                    <p className="text-sm text-muted-foreground">
+                      Update your password regularly
+                    </p>
+                  </div>
+                  <Button variant="outline" onClick={() => navigate("/settings/change-password")}>
+                    Change
+                  </Button>
+                </div>
+                <Separator />
+              </>
+            )}
             <div className="flex justify-between items-center">
               <div>
                 <p className="font-medium">Two-Factor Authentication</p>

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
-import { departmentsService } from '@/services';
-import type { BackendDocument } from '@/services';
+import { departmentsService, documentsService, foldersService } from '@/services';
+import type { BackendDocument, BackendFolder } from '@/services';
 import { DEPARTMENTS } from '@/config/departments';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +10,19 @@ import { Button } from '@/components/ui/button';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Building2, ArrowLeft, FileText, Loader2 } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import {
+  Building2, ArrowLeft, FileText, Loader2, MoreHorizontal, Star,
+  FolderInput, Download, Share2, Trash,
+} from 'lucide-react';
 import { format } from 'date-fns';
 
 function formatBytes(bytes: number): string {
@@ -24,6 +37,8 @@ const DEPT_COLORS = [
 ];
 
 const Departments: React.FC = () => {
+  const navigate = useNavigate();
+
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [isLoadingCounts, setIsLoadingCounts] = useState(true);
 
@@ -32,11 +47,16 @@ const Departments: React.FC = () => {
   const [isLoadingDocs, setIsLoadingDocs] = useState(false);
   const [error, setError] = useState('');
 
+  const [folders, setFolders] = useState<BackendFolder[]>([]);
+  const [moveDoc, setMoveDoc] = useState<BackendDocument | null>(null);
+  const [moveTargetFolder, setMoveTargetFolder] = useState('');
+
   useEffect(() => {
     departmentsService.counts()
       .then(setCounts)
       .catch(() => setCounts({}))
       .finally(() => setIsLoadingCounts(false));
+    foldersService.list(null).then(setFolders).catch(() => setFolders([]));
   }, []);
 
   const openDepartment = useCallback((dept: string) => {
@@ -48,6 +68,34 @@ const Departments: React.FC = () => {
       .catch(() => setError('Failed to load documents for this department'))
       .finally(() => setIsLoadingDocs(false));
   }, []);
+
+  const reloadCurrent = useCallback(() => {
+    if (selected) openDepartment(selected);
+  }, [selected, openDepartment]);
+
+  const handleToggleStar = async (docId: string) => {
+    await documentsService.toggleStar(docId);
+    reloadCurrent();
+  };
+
+  const handleDownload = (doc: BackendDocument) => {
+    documentsService.download(doc.id, doc.file_name);
+  };
+
+  const handleDelete = async (docId: string) => {
+    if (!globalThis.confirm('Delete this document?')) return;
+    await documentsService.delete(docId);
+    reloadCurrent();
+  };
+
+  const handleMoveConfirm = async () => {
+    if (!moveDoc) return;
+    await documentsService.moveToFolder(moveDoc.id, moveTargetFolder || null);
+    window.dispatchEvent(new Event('folders-updated'));
+    setMoveDoc(null);
+    setMoveTargetFolder('');
+    reloadCurrent();
+  };
 
   return (
     <MainLayout>
@@ -114,12 +162,16 @@ const Departments: React.FC = () => {
                       <TableHead>Uploaded by</TableHead>
                       <TableHead>Size</TableHead>
                       <TableHead>Updated</TableHead>
+                      <TableHead className="w-10" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {documents.map(doc => (
                       <TableRow key={doc.id}>
-                        <TableCell className="font-medium">
+                        <TableCell
+                          className="font-medium cursor-pointer"
+                          onClick={() => navigate(`/documents/${doc.id}`)}
+                        >
                           <div className="flex items-center gap-2">
                             <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                             {doc.title}
@@ -130,6 +182,36 @@ const Departments: React.FC = () => {
                         <TableCell className="text-muted-foreground">
                           {format(new Date(doc.updated_at), 'MMM d, yyyy')}
                         </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleToggleStar(doc.id)} className="gap-2">
+                                <Star className={`h-4 w-4 ${doc.is_starred ? 'text-yellow-500 fill-yellow-500' : ''}`} />
+                                {doc.is_starred ? 'Remove star' : 'Add star'}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => { setMoveDoc(doc); setMoveTargetFolder(doc.folder_id ?? ''); }}
+                                className="gap-2"
+                              >
+                                <FolderInput className="h-4 w-4" /> Move to Folder
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleDownload(doc)} className="gap-2">
+                                <Download className="h-4 w-4" /> Download
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => navigate(`/documents/${doc.id}/share`)} className="gap-2">
+                                <Share2 className="h-4 w-4" /> Share
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleDelete(doc.id)} className="text-destructive gap-2">
+                                <Trash className="h-4 w-4" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -139,6 +221,29 @@ const Departments: React.FC = () => {
           </Card>
         )}
       </div>
+
+      <Dialog open={!!moveDoc} onOpenChange={open => { if (!open) { setMoveDoc(null); setMoveTargetFolder(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move "{moveDoc?.title}" to folder</DialogTitle>
+          </DialogHeader>
+          <Select value={moveTargetFolder || '__root__'} onValueChange={v => setMoveTargetFolder(v === '__root__' ? '' : v)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select a folder" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__root__">All Files (root)</SelectItem>
+              {folders.map(f => (
+                <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setMoveDoc(null); setMoveTargetFolder(''); }}>Cancel</Button>
+            <Button onClick={handleMoveConfirm}>Move</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 };

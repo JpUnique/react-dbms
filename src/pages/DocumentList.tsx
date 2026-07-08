@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import JSZip from 'jszip';
 import { documentsService, foldersService, tagsService, bulkService } from '@/services';
 import type { BackendDocument, BackendFolder, BackendTag } from '@/services';
@@ -25,7 +25,7 @@ import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreHorizontal,
   FilePlus, FolderPlus, FileText, Trash, Download, Star, SlidersHorizontal,
   Search, X, Loader2, Archive, FolderInput, LayoutGrid, List, RefreshCw,
-  FolderOpen, Files, ArrowRight,
+  FolderOpen, Files, ArrowRight, Share2,
 } from 'lucide-react';
 
 type SortField = 'title' | 'file_size' | 'created_at' | 'status';
@@ -58,6 +58,8 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> = {
 const ITEMS_PER_PAGE = 20;
 
 const DocumentList: React.FC = () => {
+  const navigate = useNavigate();
+
   // Data
   const [documents, setDocuments]     = useState<BackendDocument[]>([]);
   const [folders, setFolders]         = useState<BackendFolder[]>([]);
@@ -297,6 +299,9 @@ const DocumentList: React.FC = () => {
         )}
         <DropdownMenuItem onClick={() => handleDownload(doc)} className="gap-2">
           <Download className="h-4 w-4" /> Download
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate(`/documents/${doc.id}/share`)} className="gap-2">
+          <Share2 className="h-4 w-4" /> Share
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handleDelete(doc.id)} className="text-destructive gap-2">
           <Trash className="h-4 w-4" /> Delete
