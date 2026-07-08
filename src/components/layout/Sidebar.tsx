@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
-  Files, FolderOpen, Database, PlusCircle,
+  Files, FolderOpen, PlusCircle,
   ChevronRight, ChevronDown, UsersRound, Bookmark, History,
   Menu, X, Trash2, Shield, Settings2, LayoutDashboard, ClipboardCheck,
   Share2, Tag, LayoutGrid, UserCog, MessageSquare, BarChart3, Link2,
@@ -178,9 +178,12 @@ const Sidebar = () => {
       {/* Logo */}
       <div className="flex items-center justify-between px-4 py-4">
         <Link to="/" className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-linear-to-br from-primary to-primary/75 flex items-center justify-center shrink-0 shadow-sm">
-            <Database className="h-4 w-4 text-primary-foreground" />
-          </div>
+          <img
+            src="/assets/images/logo.png"
+            alt="PetroData"
+            className="h-8 w-8 rounded-lg object-contain shrink-0 shadow-sm"
+            onError={e => { e.currentTarget.style.display = 'none'; }}
+          />
           <span className="font-bold text-base tracking-tight">PetroData</span>
         </Link>
         <Button
