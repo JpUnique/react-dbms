@@ -4,9 +4,11 @@ import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import AuthBackground from '@/components/AuthBackground';
+import { DEPARTMENTS } from '@/config/departments';
 
 const fieldClass =
   "bg-white/10 border-white/20 text-white placeholder:text-slate-400 backdrop-blur-md focus-visible:ring-primary focus-visible:ring-offset-0";
@@ -17,6 +19,7 @@ const Register: React.FC = () => {
 
   const [name, setName]                     = useState('');
   const [email, setEmail]                   = useState('');
+  const [department, setDepartment]         = useState('');
   const [password, setPassword]             = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError]                   = useState('');
@@ -26,7 +29,7 @@ const Register: React.FC = () => {
     e.preventDefault();
     setError('');
 
-    if (!name || !email || !password || !confirmPassword) {
+    if (!name || !email || !department || !password || !confirmPassword) {
       setError('Please fill in all fields');
       return;
     }
@@ -37,7 +40,7 @@ const Register: React.FC = () => {
 
     setIsLoading(true);
     try {
-      const result = await register(name, email, password);
+      const result = await register(name, email, password, department);
       if (result.ok) navigate('/login/setup-2fa');
       else setError(result.error || 'Registration failed. Email may already be in use.');
     } catch {
@@ -111,6 +114,20 @@ const Register: React.FC = () => {
               required
               className={fieldClass}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="department" className="text-slate-200">Department</Label>
+            <Select value={department} onValueChange={setDepartment} required>
+              <SelectTrigger id="department" className={fieldClass}>
+                <SelectValue placeholder="Select your department" />
+              </SelectTrigger>
+              <SelectContent>
+                {DEPARTMENTS.map(dept => (
+                  <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-1.5">

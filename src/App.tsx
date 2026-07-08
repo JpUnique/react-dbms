@@ -45,6 +45,7 @@ import Collaborators from "@/pages/Collaborators";
 import SharedWithMe from "@/pages/SharedWithMe";
 import MyShareLinks from "@/pages/MyShareLinks";
 import Chat from "@/pages/Chat";
+import Departments from "@/pages/Departments";
 
 const queryClient = new QueryClient();
 
@@ -63,6 +64,24 @@ const ProtectedRoute: React.FC<{ element: React.ReactNode }> = ({
   }
 
   return currentUser ? <>{element}</> : <Navigate to="/login" replace />;
+};
+
+//  ADMIN-ONLY ROUTE — same shape as ProtectedRoute, plus a role check.
+//  Defense in depth alongside the backend's AdminOnly() middleware: hiding a
+//  sidebar link alone doesn't stop someone navigating to the URL directly.
+const AdminRoute: React.FC<{ element: React.ReactNode }> = ({ element }) => {
+  const { currentUser, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        Loading...
+      </div>
+    );
+  }
+
+  if (!currentUser) return <Navigate to="/login" replace />;
+  return currentUser.role === "admin" ? <>{element}</> : <Navigate to="/" replace />;
 };
 
 //  FIXED PUBLIC ROUTE
@@ -235,7 +254,13 @@ const App = () => {
                       <Route
                         path="/users"
                         element={
-                          <ProtectedRoute element={<UserManagement />} />
+                          <AdminRoute element={<UserManagement />} />
+                        }
+                      />
+                      <Route
+                        path="/departments"
+                        element={
+                          <AdminRoute element={<Departments />} />
                         }
                       />
                       <Route
@@ -250,11 +275,11 @@ const App = () => {
                       />
                       <Route
                         path="/audit"
-                        element={<ProtectedRoute element={<AuditLog />} />}
+                        element={<AdminRoute element={<AuditLog />} />}
                       />
                       <Route
                         path="/reports"
-                        element={<ProtectedRoute element={<Reports />} />}
+                        element={<AdminRoute element={<Reports />} />}
                       />
                       <Route
                         path="/search"
@@ -262,11 +287,11 @@ const App = () => {
                       />
                       <Route
                         path="/review-queue"
-                        element={<ProtectedRoute element={<ReviewQueue />} />}
+                        element={<AdminRoute element={<ReviewQueue />} />}
                       />
                       <Route
                         path="/collaborators"
-                        element={<ProtectedRoute element={<Collaborators />} />}
+                        element={<AdminRoute element={<Collaborators />} />}
                       />
                       <Route
                         path="/documents/shared"

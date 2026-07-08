@@ -12,6 +12,7 @@ import {
   ChevronRight, ChevronDown, UsersRound, Bookmark, History,
   Menu, X, Trash2, Shield, Settings2, LayoutDashboard, ClipboardCheck,
   Share2, Tag, LayoutGrid, UserCog, MessageSquare, BarChart3, Link2,
+  Search, Building2,
 } from 'lucide-react';
 
 // ── Sub-components defined outside Sidebar to avoid re-definition on every render ──
@@ -34,11 +35,7 @@ interface NavItemProps {
 
 const NavItem: React.FC<NavItemProps> = ({ to, icon: Icon, iconColor, label, count, isAdmin, userRole }) => {
   const location = useLocation();
-  // TEMP-NO-ROLES: admin-only nav gating disabled for testing — restore
-  // `if (isAdmin && userRole !== 'admin') return null;` once role-based
-  // access is reintroduced.
-  void isAdmin;
-  void userRole;
+  if (isAdmin && userRole !== 'admin') return null;
   const isActive = location.pathname === to;
   return (
     <Link
@@ -216,25 +213,24 @@ const Sidebar = () => {
           <NavItem to="/starred"             icon={Bookmark}        iconColor="text-amber-500" label="Starred"           userRole={role} />
           <NavItem to="/recent"              icon={History}         iconColor="text-violet-500" label="Recent"           userRole={role} />
           <NavItem to="/trash"               icon={Trash2}          iconColor="text-red-500"   label="Trash"             userRole={role} />
+          <NavItem to="/search"              icon={Search}          iconColor="text-lime-500"  label="Indexing"          userRole={role} />
         </div>
 
         <NavItem to="/chat" icon={MessageSquare} iconColor="text-violet-500" label="AI Chat" userRole={role} />
 
         <SectionLabel>Team</SectionLabel>
         <div className="space-y-0.5">
-          <NavItem to="/users"            icon={UserCog}    iconColor="text-indigo-500"  label="User Management" userRole={role} />
-          <NavItem to="/collaborators"    icon={UsersRound} iconColor="text-emerald-500" label="Collaborators"   userRole={role} />
+          <NavItem to="/users"            icon={UserCog}    iconColor="text-indigo-500"  label="User Management" isAdmin userRole={role} />
+          <NavItem to="/collaborators"    icon={UsersRound} iconColor="text-emerald-500" label="Collaborators"   isAdmin userRole={role} />
           <NavItem to="/documents/shared" icon={Share2}     iconColor="text-teal-500"    label="Shared with Me"  userRole={role} />
           <NavItem to="/share-links"      icon={Link2}      iconColor="text-cyan-500"    label="My Share Links"  userRole={role} />
         </div>
 
-        {/* TEMP-NO-ROLES: admin section shown to everyone while testing —
-            restore `role === 'admin' &&` once role-based access is
-            reintroduced. */}
-        {(
+        {role === 'admin' && (
           <>
             <SectionLabel>Admin</SectionLabel>
             <div className="space-y-0.5">
+              <NavItem to="/departments"   icon={Building2}      iconColor="text-blue-500"    label="Departments"  isAdmin userRole={role} />
               <NavItem to="/review-queue" icon={ClipboardCheck} iconColor="text-purple-500"  label="Review Queue" isAdmin userRole={role} />
               <NavItem to="/audit"        icon={Shield}         iconColor="text-orange-500"  label="Audit Log"    isAdmin userRole={role} />
               <NavItem to="/reports"      icon={BarChart3}      iconColor="text-fuchsia-500" label="Reports"      isAdmin userRole={role} />

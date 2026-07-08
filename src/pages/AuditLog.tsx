@@ -71,9 +71,10 @@ const AuditLog: React.FC = () => {
   }, [buildFilters]);
 
   useEffect(() => {
-    // TEMP-NO-ROLES: admin-only redirect disabled for testing — restore
-    // `if (currentUser?.role !== 'admin') { navigate('/'); return; }` once
-    // role-based access is reintroduced.
+    if (currentUser?.role !== 'admin') {
+      navigate('/');
+      return;
+    }
     load();
   }, [currentUser, navigate, load]);
 

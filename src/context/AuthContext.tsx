@@ -33,7 +33,7 @@ interface AuthContextType {
   // /login rather than persist a half-authenticated state.
   pendingChallenge: PendingChallenge | null;
   login: (username: string, password: string) => Promise<StepResult>;
-  register: (name: string, email: string, password: string) => Promise<StepResult>;
+  register: (name: string, email: string, password: string, department: string) => Promise<StepResult>;
   completeChallenge: (code: string) => Promise<VerifyResult>;
   clearChallenge: () => void;
   logout: () => Promise<void>;
@@ -97,10 +97,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   // REGISTER (creates account, starts mandatory 2FA setup)
   const register = useCallback(
-    async (name: string, email: string, password: string): Promise<StepResult> => {
+    async (name: string, email: string, password: string, department: string): Promise<StepResult> => {
       setIsLoading(true);
       try {
-        const res = await authService.register({ name, email, password });
+        const res = await authService.register({ name, email, password, department });
         setPendingChallenge({
           challenge: res.login_challenge,
           status: res.status,

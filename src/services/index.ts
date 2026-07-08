@@ -5,6 +5,7 @@ export { usersService } from './users.service';
 export type { User, UserFilters } from './users.service';
 export { documentsService } from './documents.service';
 export type { BackendDocument, DocumentFilters } from './documents.service';
+export { departmentsService } from './departments.service';
 export { foldersService } from './folders.service';
 export type { BackendFolder } from './folders.service';
 export { tagsService } from './tags.service';

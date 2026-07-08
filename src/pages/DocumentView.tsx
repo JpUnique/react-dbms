@@ -342,10 +342,7 @@ const DocumentView: React.FC = () => {
             )}
 
             {/* Admin: approve / reject when pending */}
-            {/* TEMP-NO-ROLES: admin-only gate disabled for testing — restore
-                `currentUser?.role === 'admin' &&` once role-based access is
-                reintroduced. */}
-            {doc.status === 'pending_review' && (
+            {currentUser?.role === 'admin' && doc.status === 'pending_review' && (
               <>
                 <Button size="sm" variant="outline"
                   className="border-green-500/40 text-green-600 hover:bg-green-50 dark:hover:bg-green-950"

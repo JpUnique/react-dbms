@@ -25,11 +25,7 @@ import {
   ShieldAlert, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-const DEPARTMENTS = [
-  'Finance', 'HR', 'Procurement', 'Inventory', 'Project Management',
-  'Assets/Maintenance', 'Logistics', 'IT', 'Operations', 'Administration',
-];
+import { DEPARTMENTS } from '@/config/departments';
 
 type Role = 'admin' | 'editor' | 'viewer';
 
